@@ -1,13 +1,16 @@
-import { isFunction, isPlainObject } from '../util/minilo'
+import debounce from 'debounce-promise'
+import { findPointOnSurface } from '../ol-ext'
+import { clonePlainObject, isEqual, isFunction } from '../util/minilo'
+import { FRAME_TIME } from './ol-cmp'
 import projTransforms from './proj-transforms'
 
 /**
- * @typedef {module:ol/geom/Geometry~Geometry|module:ol/style/Style~GeometryFunction|Object} GeometryLike
+ * @typedef {Geometry|Object} GeometryLike
  */
 /**
  * @typedef {Object} GeometryTarget
- * @property {function(): module:ol/geom/Geometry~Geometry|module:ol/style/Style~GeometryFunction|undefined} getGeometry
- * @property {function(module:ol/geom/Geometry~Geometry|module:ol/style/Style~GeometryFunction|undefined): void} setGeometry
+ * @property {function(): Geometry|undefined} getGeometry
+ * @property {function(Geometry|undefined): void} setGeometry
  */
 
 /**
@@ -17,13 +20,66 @@ export default {
   mixins: [
     projTransforms,
   ],
+  computed: {
+    geometryDataProj () {
+      if (!(this.rev && this.$geometry)) return
+
+      return this.writeGeometryInDataProj(this.$geometry)
+    },
+    geometryViewProj () {
+      if (!(this.rev && this.$geometry)) return
+
+      return this.writeGeometryInViewProj(this.$geometry)
+    },
+    pointDataProj () {
+      if (!this.pointViewProj) return
+
+      return this.pointToDataProj(this.pointViewProj)
+    },
+    pointViewProj () {
+      if (!(this.rev && this.$geometry)) return
+
+      return findPointOnSurface(this.$geometry)
+    },
+  },
+  watch: {
+    geometryDataProj: {
+      deep: true,
+      handler: debounce(function (value, prev) {
+        if (isEqual(value, prev)) return
+
+        this.$emit('update:geometry', value && clonePlainObject(value))
+      }, FRAME_TIME),
+    },
+  },
   created () {
-    this._geometry = undefined
-    this._geometryVm = undefined
+    this._geometry = null
+    this._geometryVm = null
 
     this::defineService()
   },
   methods: {
+    /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        'geometryDataProj',
+        'geometryViewProj',
+        'pointViewProj',
+      ]
+    },
+    /**
+     * @returns {{readonly geometryContainer: Object}}
+     * @protected
+     */
+    getServices () {
+      const vm = this
+
+      return {
+        get geometryContainer () { return vm },
+      }
+    },
     /**
      * @return {Promise<GeometryTarget|undefined>}
      * @protected
@@ -42,31 +98,20 @@ export default {
      * @return {Promise<void>}
      */
     async setGeometry (geom) {
-      let geomVm
-      if (geom && isFunction(geom.resolveOlObject)) {
-        geomVm = geom
+      if (isFunction(geom?.resolveOlObject)) {
         geom = await geom.resolveOlObject()
-      } else if (isPlainObject(geom)) {
-        geom = this.readGeometryInDataProj(geom)
       }
+      geom || (geom = null)
+
+      if (geom === this._geometry) return
 
       const geomTarget = await this.getGeometryTarget()
-      if (geomTarget && geom !== geomTarget.getGeometry()) {
-        geomTarget.setGeometry(geom)
-        this._geometry = geom
-        this._geometryVm = geomVm || (geom?.vm && geom.vm[0])
-      }
-    },
-    /**
-     * @returns {{readonly geometryContainer: Object}}
-     * @protected
-     */
-    getServices () {
-      const vm = this
+      if (!geomTarget) return
 
-      return {
-        get geometryContainer () { return vm },
-      }
+      this._geometry = geom
+      this._geometryVm = geom?.vm && geom.vm[0]
+      geomTarget.setGeometry(geom)
+      ++this.rev
     },
   },
 }

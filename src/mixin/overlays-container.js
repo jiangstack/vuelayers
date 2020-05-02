@@ -1,5 +1,6 @@
 import { Collection, Overlay } from 'ol'
-import { merge as mergeObs } from 'rxjs'
+import { merge as mergeObs, from as fromObs } from 'rxjs'
+import { switchMap, map as mapObs } from 'rxjs/operators'
 import { getOverlayId, initializeOverlay } from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
@@ -60,15 +61,37 @@ export default {
   },
   methods: {
     /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        'overlayIds',
+      ]
+    },
+    /**
+     * @returns {readonly overlaysContainer: Object}}
+     * @protected
+     */
+    getServices () {
+      const vm = this
+
+      return {
+        get overlaysContainer () { return vm },
+      }
+    },
+    async initializeOverlay (overlay) {
+      if (isFunction(overlay.resolveOlObject)) {
+        overlay = await overlay.resolveOlObject()
+      }
+
+      return initializeOverlay(overlay)
+    },
+    /**
      * @param {OverlayLike} overlay
      * @return {void}
      */
     async addOverlay (overlay) {
-      initializeOverlay(overlay)
-
-      if (isFunction(overlay.resolveOlObject)) {
-        overlay = await overlay.resolveOlObject()
-      }
+      overlay = await this.initializeOverlay(overlay)
 
       instanceOf(overlay, Overlay)
 
@@ -131,17 +154,6 @@ export default {
     clearOverlays () {
       this.$overlaysCollection.clear()
     },
-    /**
-     * @returns {readonly overlaysContainer: Object}}
-     * @protected
-     */
-    getServices () {
-      const vm = this
-
-      return {
-        get overlaysContainer () { return vm },
-      }
-    },
   },
 }
 
@@ -155,7 +167,11 @@ function defineServices () {
 }
 
 function subscribeToCollectionEvents () {
-  const adds = obsFromOlEvent(this.$overlaysCollection, 'add')
+  const adds = obsFromOlEvent(this.$overlaysCollection, 'add').pipe(
+    switchMap(({ type, element }) => fromObs(this.initializeOverlay(element)).pipe(
+      mapObs(element => ({ type, element })),
+    )),
+  )
   const removes = obsFromOlEvent(this.$overlaysCollection, 'remove')
 
   this.subscribeTo(mergeObs(adds, removes), ({ type, element }) => {

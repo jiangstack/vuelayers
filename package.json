@@ -58,7 +58,8 @@
     "ol-tilecache": "^6.0.0",
     "parse-color": "^1.0.0",
     "rxjs": "^6.5.5",
-    "uuid": "^7.0.3"
+    "uuid": "^7.0.3",
+    "vuequery": "^1.0.0"
   },
   "peerDependencies": {
     "vue": "^2.3"

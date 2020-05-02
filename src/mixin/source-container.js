@@ -15,50 +15,19 @@ import { isFunction } from '../util/minilo'
 export default {
   created () {
     /**
-     * @type {module:ol/source/Source~Source|undefined}
+     * @type {module:ol/source/Source~Source|null}
      * @private
      */
-    this._source = undefined
+    this._source = null
     /**
-     * @type {Object|undefined}
+     * @type {Object|null}
      * @private
      */
-    this._sourceVm = undefined
+    this._sourceVm = null
 
     this::defineServices()
   },
   methods: {
-    /**
-     * @return {Promise<SourceTarget|undefined>}
-     * @protected
-     */
-    getSourceTarget () {
-      throw new Error('Not implemented method: getSourceTarget')
-    },
-    /**
-     * @return {module:ol/source/Source~Source|undefined}
-     */
-    getSource () {
-      return this._source
-    },
-    /**
-     * @param {SourceLike|undefined} source
-     * @return {void}
-     */
-    async setSource (source) {
-      let sourceVm
-      if (source && isFunction(source.resolveOlObject)) {
-        sourceVm = source
-        source = await source.resolveOlObject()
-      }
-
-      const sourceTarget = await this.getSourceTarget()
-      if (sourceTarget && source !== sourceTarget.getSource()) {
-        sourceTarget.setSource(source)
-        this._source = source
-        this._sourceVm = sourceVm || (source?.vm && source.vm[0])
-      }
-    },
     /**
      * @returns {{readonly sourceContainer: Object}}
      * @protected
@@ -69,6 +38,39 @@ export default {
       return {
         get sourceContainer () { return vm },
       }
+    },
+    /**
+     * @return {Promise<SourceTarget|undefined>}
+     * @protected
+     */
+    getSourceTarget () {
+      throw new Error('Not implemented method: getSourceTarget')
+    },
+    /**
+     * @return {module:ol/source/Source~Source|null}
+     */
+    getSource () {
+      return this._source
+    },
+    /**
+     * @param {SourceLike|undefined} source
+     * @return {void}
+     */
+    async setSource (source) {
+      if (isFunction(source?.resolveOlObject)) {
+        source = await source.resolveOlObject()
+      }
+      source || (source = null)
+
+      if (source === this._source) return
+
+      const sourceTarget = await this.getSourceTarget()
+      if (!sourceTarget) return
+
+      this._source = source
+      this._sourceVm = source?.vm && source.vm[0]
+      sourceTarget.setSource(source)
+      ++this.rev
     },
   },
 }

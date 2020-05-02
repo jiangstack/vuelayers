@@ -1,6 +1,7 @@
 import { Collection } from 'ol'
 import { Control, defaults as createDefaultControls } from 'ol/control'
-import { merge as mergeObs } from 'rxjs'
+import { merge as mergeObs, from as fromObs } from 'rxjs'
+import { switchMap, map as mapObs } from 'rxjs/operators'
 import { getControlId, initializeControl } from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
@@ -61,6 +62,14 @@ export default {
   },
   methods: {
     /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        'controlIds',
+      ]
+    },
+    /**
      * @param {ControlLike[]|module:ol/Collection~Collection<ControlLike>} defaultControls
      * @returns {Promise<void>}
      */
@@ -81,16 +90,19 @@ export default {
         await this.addControls(controls)
       }
     },
+    async initializeControl (control) {
+      if (isFunction(control.resolveOlObject)) {
+        control = await control.resolveOlObject()
+      }
+
+      return initializeControl(control)
+    },
     /**
      * @param {ControlLike} control
      * @returns {Promise<void>}
      */
     async addControl (control) {
-      initializeControl(control)
-
-      if (isFunction(control.resolveOlObject)) {
-        control = await control.resolveOlObject()
-      }
+      control = await this.initializeControl(control)
 
       instanceOf(control, Control)
 
@@ -177,7 +189,11 @@ function defineServices () {
 }
 
 function subscribeToCollectionEvents () {
-  const adds = obsFromOlEvent(this.$controlsCollection, 'add')
+  const adds = obsFromOlEvent(this.$controlsCollection, 'add').pipe(
+    switchMap(({ type, element }) => fromObs(this.initializeControl(element)).pipe(
+      mapObs(element => ({ type, element })),
+    )),
+  )
   const removes = obsFromOlEvent(this.$controlsCollection, 'remove')
 
   this.subscribeTo(mergeObs(adds, removes), ({ type, element }) => {

@@ -1,12 +1,12 @@
-import debounce from 'debounce-promise'
 import { Feature } from 'ol'
 import { all as loadAll } from 'ol/loadingstrategy'
-import { createGeoJsonFmt, getFeatureId, isGeoJSONFeature, transform } from '../ol-ext'
+import { getFeatureId, getGeoJsonFmt, isGeoJSONFeature, transform } from '../ol-ext'
 import {
   and,
   clonePlainObject,
   constant,
   difference,
+  every,
   isArray,
   isEmpty,
   isEqual,
@@ -51,7 +51,7 @@ export default {
     features: {
       type: Array,
       default: stubArray,
-      validator: value => value.every(isGeoJSONFeature),
+      validator: value => every(value, isGeoJSONFeature),
     },
     /**
      * Source format factory
@@ -59,7 +59,7 @@ export default {
      */
     formatFactory: {
       type: Function,
-      default: createGeoJsonFmt,
+      default: getGeoJsonFmt,
     },
     /**
      * Feature loader.
@@ -167,7 +167,7 @@ export default {
       async handler (features) {
         if (!this.$source || isEqual(features, this.featuresDataProj)) return
         // add new features
-        await Promise.all(features.map(feature => this.addFeature({ ...feature })))
+        await Promise.all(features.map(feature => this.addFeature(clonePlainObject(feature))))
         // remove non-matched features
         await Promise.all(difference(
           this.getFeatures(),
@@ -175,12 +175,6 @@ export default {
           (a, b) => getFeatureId(a) === getFeatureId(b),
         ).map(::this.removeFeature))
       },
-    },
-    featuresDataProj: {
-      deep: true,
-      handler: debounce(function (features) {
-        this.$emit('update:features', clonePlainObject(features))
-      }, 1000 / 60),
     },
     async urlFunc (value) {
       await this.setUrlInternal(value)
@@ -259,6 +253,54 @@ export default {
   },
   methods: {
     /**
+     * @returns {Promise<void>}
+     * @protected
+     */
+    async init () {
+      await this::source.methods.init()
+      await this.addFeatures(this.features)
+    },
+    /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        ...this::featuresContainer.methods.triggerProps(),
+        ...this::source.methods.triggerProps(),
+      ]
+    },
+    /**
+     * @return {Object}
+     * @protected
+     */
+    getServices () {
+      return mergeDescriptors(
+        this::source.methods.getServices(),
+        this::featuresContainer.methods.getServices(),
+      )
+    },
+    ...pick(source.methods, [
+      'beforeInit',
+      'deinit',
+      'beforeMount',
+      'mount',
+      'unmount',
+      'refresh',
+      'scheduleRefresh',
+      'remount',
+      'scheduleRemount',
+      'recreate',
+      'scheduleRecreate',
+      'subscribeAll',
+      'resolveOlObject',
+      'resolveSource',
+    ]),
+    onFeaturesChanged (features) {
+      if (isEqual(features, this.features)) return
+
+      this.$emit('update:features', clonePlainObject(features))
+    },
+    /**
      * @param {function} callback
      * @returns {Promise<void>}
      */
@@ -271,9 +313,7 @@ export default {
      * @returns {Promise<*|T>}
      */
     async forEachFeatureInExtent (extent, callback) {
-      extent = this.extentToViewProj(extent)
-
-      return (await this.resolveSource()).forEachFeatureInExtent(extent, callback)
+      return (await this.resolveSource()).forEachFeatureInExtent(this.extentToViewProj(extent), callback)
     },
     /**
      * @param {number[]} extent
@@ -281,27 +321,21 @@ export default {
      * @returns {Promise<T>}
      */
     async forEachFeatureIntersectingExtent (extent, callback) {
-      extent = this.extentToViewProj(extent)
-
-      return (await this.resolveSource()).forEachFeatureInExtent(extent, callback)
+      return (await this.resolveSource()).forEachFeatureInExtent(this.extentToViewProj(extent), callback)
     },
     /**
      * @param {number[]} coordinate
      * @returns {Promise<Array<module:ol/Feature~Feature>>}
      */
     async getFeaturesAtCoordinate (coordinate) {
-      coordinate = this.pointToViewProj(coordinate)
-
-      return (await this.resolveSource()).getFeaturesAtCoordinate(coordinate)
+      return (await this.resolveSource()).getFeaturesAtCoordinate(this.pointToViewProj(coordinate))
     },
     /**
      * @param {number[]} extent
      * @returns {Promise<Array<module:ol/Feature~Feature>>}
      */
     async getFeaturesInExtent (extent) {
-      extent = this.extentToViewProj(extent)
-
-      return (await this.resolveSource()).getFeaturesInExtent(extent)
+      return (await this.resolveSource()).getFeaturesInExtent(this.extentToViewProj(extent))
     },
     /**
      * @param {number[]} coordinate
@@ -309,18 +343,14 @@ export default {
      * @returns {Promise<module:ol/Feature~Feature>}
      */
     async getClosestFeatureToCoordinate (coordinate, filter) {
-      coordinate = this.pointToViewProj(coordinate)
-
-      return (await this.resolveSource()).getClosestFeatureToCoordinate(coordinate, filter)
+      return (await this.resolveSource()).getClosestFeatureToCoordinate(this.pointToViewProj(coordinate), filter)
     },
     /**
      * @param {number[]} [extent]
      * @returns {Promise<number[]>}
      */
     async getExtent (extent) {
-      extent = this.extentToViewProj(extent)
-
-      return (await this.resolveSource()).getExtent(extent)
+      return this.extentToDataProj((await this.resolveSource()).getExtent(this.extentToViewProj(extent)))
     },
     /**
      * @returns {Promise<module:ol/format/Feature~FeatureFormat|undefined>}
@@ -446,38 +476,6 @@ export default {
         dataProjection: this.resolvedDataProjection,
       })
     },
-    /**
-     * @returns {Promise<void>}
-     * @protected
-     */
-    async init () {
-      await this::source.methods.init()
-      await this.addFeatures(this.features)
-    },
-    /**
-     * @return {Object}
-     * @protected
-     */
-    getServices () {
-      return mergeDescriptors(
-        this::source.methods.getServices(),
-        this::featuresContainer.methods.getServices(),
-      )
-    },
-    ...pick(source.methods, [
-      'deinit',
-      'mount',
-      'unmount',
-      'refresh',
-      'scheduleRefresh',
-      'remount',
-      'scheduleRemount',
-      'recreate',
-      'scheduleRecreate',
-      'subscribeAll',
-      'resolveOlObject',
-      'resolveSource',
-    ]),
   },
 }
 

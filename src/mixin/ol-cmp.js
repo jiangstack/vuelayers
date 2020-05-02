@@ -1,41 +1,48 @@
 import debounce from 'debounce-promise'
-import { concat as concatObs, from as fromObs } from 'rxjs'
-import { first as firstObs } from 'rxjs/operators'
+import { concat as concatObs, from as fromObs, race as raceObs, throwError as throwErrorObs } from 'rxjs'
+import { first as firstObs, switchMap as switchMapObs } from 'rxjs/operators'
 import { v4 as uuid } from 'uuid'
+import vq from 'vuequery'
 import { obsFromVueEvent } from '../rx-ext'
 import { newLogger } from '../util/log'
-import { identity, isFunction, kebabCase } from '../util/minilo'
+import { clonePlainObject, constant, identity, isEmpty, isFunction, kebabCase, negate } from '../util/minilo'
+import eventBus from './event-bus'
 import identMap from './ident-map'
 import rxSubs from './rx-subs'
 import services from './services'
 
-const VM_PROP = 'vm'
+export const VM_PROP = 'vm'
+export const FRAME_TIME = 1000 / 60
 
-const STATE_UNDEF = 'undef'
-const STATE_CREATING = 'creating'
-const STATE_CREATED = 'created'
-const STATE_MOUNTING = 'mounting'
-const STATE_MOUNTED = 'mounted'
+const olObjectState = {
+  UNDEF: 'undef',
+  CREATING: 'creating',
+  CREATED: 'created',
+  MOUNTING: 'mounting',
+  MOUNTED: 'mounted',
+}
 
-const EVENT_CREATED = 'created'
-const EVENT_CREATE_ERROR = 'createerror'
-const EVENT_MOUNTED = 'mounted'
-const EVENT_MOUNT_ERROR = 'mounterror'
-const EVENT_UNMOUNTED = 'unmounted'
-const EVENT_UNMOUNT_ERROR = 'unmounterror'
-const EVENT_DESTROYED = 'destroyed'
-const EVENT_DESTROY_ERROR = 'destroyerror'
+const olObjectEvent = {
+  CREATED: 'created',
+  CREATE_ERROR: 'createerror',
+  MOUNTED: 'mounted',
+  MOUNT_ERROR: 'mounterror',
+  UNMOUNTED: 'unmounted',
+  UNMOUNT_ERROR: 'unmounterror',
+  DESTROYED: 'destroyed',
+  DESTROY_ERROR: 'destroyerror',
+}
 
 /**
  * Basic ol component mixin.
  * todo try to subscribe to generic change event here and update rev according to internal ol counter
  */
 export default {
-  VM_PROP,
   mixins: [
     identMap,
     rxSubs,
     services,
+    eventBus,
   ],
   props: {
     /**
@@ -44,6 +51,7 @@ export default {
     id: {
       type: [String, Number],
       default: uuid,
+      validator: negate(isEmpty),
     },
     /**
      * Unique key for saving to identity map
@@ -57,6 +65,9 @@ export default {
     }
   },
   computed: {
+    currentId () {
+      return this.id
+    },
     /**
      * @type {string}
      */
@@ -67,13 +78,13 @@ export default {
      * @type {string}
      */
     vmId () {
-      return [this.vmClass, this.id].filter(identity).join('.')
+      return [this.vmClass, this.currentId].filter(identity).join('.')
     },
     /**
      * @type {string}
      */
     vmName () {
-      return [this.$options.name, this.id].filter(identity).join('.')
+      return [this.$options.name, this.currentId].filter(identity).join('.')
     },
     /**
      * @type {string|undefined}
@@ -85,6 +96,14 @@ export default {
     },
   },
   watch: {
+    async id (value) {
+      await this.setId(value)
+    },
+    currentId: debounce(function (value) {
+      if (value === this.id) return
+
+      this.$emit('update:id', value)
+    }, FRAME_TIME),
     olObjIdent (value, prevValue) {
       if (value && prevValue) {
         this.moveInstance(value, prevValue)
@@ -105,7 +124,7 @@ export default {
      * @type {number}
      * @private
      */
-    this._olObjectState = STATE_UNDEF
+    this._olObjectState = olObjectState.UNDEF
     /**
      * @type {module:ol/Object~BaseObject}
      * @private
@@ -134,6 +153,11 @@ export default {
      * @return {Promise<void>} Resolves when initialization completes
      * @protected
      */
+    beforeInit () {},
+    /**
+     * @return {Promise<void>} Resolves when initialization completes
+     * @protected
+     */
     async init () {
       this._olObject = await this.instanceFactoryCall(this.olObjIdent, ::this.createOlObject)
       this._olObject[VM_PROP] || (this._olObject[VM_PROP] = [])
@@ -144,7 +168,17 @@ export default {
       }
 
       ++this.rev
+      // trigger computed properties based on ol instances
+      // first time trigger need to setup and cache initial values
+      this.triggerProps().forEach(prop => this[prop])
+      this.subscribeAll()
     },
+    /**
+     * @return {string[]}
+     */
+    triggerProps: constant([
+      'currentId',
+    ]),
     /**
      * @return {module:ol/Object~BaseObject|Promise<module:ol/Object~BaseObject>}
      * @protected
@@ -154,10 +188,11 @@ export default {
       throw new Error('Not implemented method: createOlObject')
     },
     /**
-     * @return {void|Promise<void>}
+     * @return {Promise<void>}
      * @protected
      */
-    deinit () {
+    async deinit () {
+      this.unsubscribeAll()
       this.unsetInstances()
 
       if (this._olObject) {
@@ -177,15 +212,18 @@ export default {
      * @return {Promise<void>}
      * @protected
      */
+    beforeMount () {},
+    /**
+     * @return {Promise<void>}
+     * @protected
+     */
     async mount () {
-      await this.subscribeAll()
     },
     /**
      * @return {void|Promise<void>}
      * @protected
      */
     async unmount () {
-      await this.unsubscribeAll()
     },
     /**
      * Refresh internal ol objects
@@ -219,7 +257,7 @@ export default {
      * @protected
      */
     async remount () {
-      if (this.$olObjectState === STATE_MOUNTED) {
+      if (this.$olObjectState === olObjectState.MOUNTED) {
         if (process.env.VUELAYERS_DEBUG) {
           this.$logger.log('remounting...')
         }
@@ -237,8 +275,8 @@ export default {
      */
     async scheduleRemount () {
       if ([
-        STATE_MOUNTING,
-        STATE_MOUNTED,
+        olObjectState.MOUNTING,
+        olObjectState.MOUNTED,
       ].includes(this.$olObjectState)) {
         if (process.env.VUELAYERS_DEBUG) {
           this.$logger.log('remount scheduled')
@@ -255,15 +293,18 @@ export default {
      */
     async recreate () {
       if ([
-        STATE_CREATED,
-        STATE_MOUNTING,
-        STATE_MOUNTED,
+        olObjectState.CREATED,
+        olObjectState.MOUNTING,
+        olObjectState.MOUNTED,
       ].includes(this.$olObjectState)) {
         if (process.env.VUELAYERS_DEBUG) {
           this.$logger.log('recreating...')
         }
 
-        const mounted = [STATE_MOUNTING, STATE_MOUNTED].includes(this.$olObjectState)
+        const mounted = [
+          olObjectState.MOUNTING,
+          olObjectState.MOUNTED,
+        ].includes(this.$olObjectState)
         if (mounted) {
           await this::execUnmount()
         }
@@ -285,10 +326,10 @@ export default {
      */
     async scheduleRecreate () {
       if ([
-        STATE_CREATING,
-        STATE_CREATED,
-        STATE_MOUNTING,
-        STATE_MOUNTED,
+        olObjectState.CREATING,
+        olObjectState.CREATED,
+        olObjectState.MOUNTING,
+        olObjectState.MOUNTED,
       ].includes(this.$olObjectState)) {
         if (process.env.VUELAYERS_DEBUG) {
           this.$logger.log('recreate scheduled')
@@ -298,7 +339,7 @@ export default {
       }
     },
     /**
-     * @return {void|Promise<void>}
+     * @return {void}
      */
     subscribeAll () {},
     /**
@@ -310,6 +351,15 @@ export default {
 
       return this.$olObject || throw new Error('OpenLayers object is undefined')
     },
+    /**
+     * @return {Promise<string|number>}
+     */
+    getId () {},
+    /**
+     * @param {string|number} id
+     * @return {Promise<void>}
+     */
+    setId (id) {},
   },
 }
 
@@ -331,12 +381,32 @@ function defineDebounceMethods () {
 
 function defineServices () {
   Object.defineProperties(this, {
+    $VM_PROP: {
+      enumerable: true,
+      get: () => VM_PROP,
+    },
+    $FRAME_TIME: {
+      enumerable: true,
+      get: () => FRAME_TIME,
+    },
+    $vq: {
+      enumerable: true,
+      get: () => vq(this),
+    },
     /**
      * @type {{warn: (function(...[*]): void), log: (function(...[*]): void), error: (function(...[*]): void)}}
      */
     $logger: {
       enumerable: true,
       get: () => this._logger,
+    },
+    $olObjectStateEnum: {
+      enumerable: true,
+      get: () => clonePlainObject(olObjectState),
+    },
+    $olObjectEventEnum: {
+      enumerable: true,
+      get: () => clonePlainObject(olObjectEvent),
     },
     /**
      * @type {string}
@@ -359,15 +429,19 @@ function defineServices () {
       enumerable: true,
       get: () => {
         if ([
-          STATE_CREATED,
-          STATE_MOUNTING,
-          STATE_MOUNTED,
+          olObjectState.CREATED,
+          olObjectState.MOUNTING,
+          olObjectState.MOUNTED,
         ].includes(this._olObjectState)) {
           return Promise.resolve()
         }
 
-        return obsFromVueEvent(this, [EVENT_CREATED, EVENT_CREATE_ERROR])
-          .pipe(firstObs())
+        return raceObs(
+          obsFromVueEvent(this, [olObjectEvent.CREATED]),
+          obsFromVueEvent(this, [olObjectEvent.CREATE_ERROR]).pipe(
+            switchMapObs(([_, err]) => throwErrorObs(err)),
+          ),
+        ).pipe(firstObs())
           .toPromise(Promise)
       },
     },
@@ -377,12 +451,19 @@ function defineServices () {
     $mountPromise: {
       enumerable: true,
       get: () => {
-        if ([STATE_MOUNTED].includes(this._olObjectState)) {
+        if ([olObjectState.MOUNTED].includes(this._olObjectState)) {
           return Promise.resolve()
         }
 
-        return obsFromVueEvent(this, [EVENT_MOUNTED, EVENT_MOUNT_ERROR])
-          .pipe(firstObs())
+        return raceObs(
+          obsFromVueEvent(this, [olObjectEvent.MOUNTED]),
+          obsFromVueEvent(this, [
+            olObjectEvent.CREATE_ERROR,
+            olObjectEvent.MOUNT_ERROR,
+          ]).pipe(
+            switchMapObs(([_, err]) => throwErrorObs(err)),
+          ),
+        ).pipe(firstObs())
           .toPromise(Promise)
       },
     },
@@ -394,8 +475,16 @@ function defineServices () {
       get: () => {
         return concatObs(
           fromObs(this.$mountPromise),
-          obsFromVueEvent(this, [EVENT_UNMOUNTED, EVENT_UNMOUNT_ERROR])
-            .pipe(firstObs()),
+          raceObs(
+            obsFromVueEvent(this, [olObjectEvent.UNMOUNTED]),
+            obsFromVueEvent(this, [
+              olObjectEvent.CREATE_ERROR,
+              olObjectEvent.MOUNT_ERROR,
+              olObjectEvent.UNMOUNT_ERROR,
+            ]).pipe(
+              switchMapObs(([_, err]) => throwErrorObs(err)),
+            ),
+          ).pipe(firstObs()),
         ).toPromise(Promise)
       },
     },
@@ -407,8 +496,17 @@ function defineServices () {
       get: () => {
         return concatObs(
           fromObs(this.$unmountPromise),
-          obsFromVueEvent(this, [EVENT_DESTROYED, EVENT_DESTROY_ERROR])
-            .pipe(firstObs()),
+          raceObs(
+            obsFromVueEvent(this, [olObjectEvent.DESTROYED]),
+            obsFromVueEvent(this, [
+              olObjectEvent.CREATE_ERROR,
+              olObjectEvent.MOUNT_ERROR,
+              olObjectEvent.UNMOUNT_ERROR,
+              olObjectEvent.DESTROY_ERROR,
+            ]).pipe(
+              switchMapObs(([_, err]) => throwErrorObs(err)),
+            ),
+          ).pipe(firstObs()),
         ).toPromise(Promise)
       },
     },
@@ -421,24 +519,28 @@ function defineServices () {
  */
 async function execInit () {
   try {
-    this._olObjectState = STATE_CREATING
+    await this.beforeInit()
+
+    this._olObjectState = olObjectState.CREATING
 
     await this.init()
 
-    this._olObjectState = STATE_CREATED
+    this._olObjectState = olObjectState.CREATED
 
-    this.$emit(EVENT_CREATED, this)
+    this.$emit(olObjectEvent.CREATED, this)
+    this.$eventBus.$emit(olObjectEvent.CREATED, this)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.log(`ol object ${EVENT_CREATED}`)
+      this.$logger.log(`ol object ${olObjectEvent.CREATED}`)
     }
   } catch (err) {
-    this._olObjectState = STATE_UNDEF
+    this._olObjectState = olObjectState.UNDEF
 
-    this.$emit(EVENT_CREATE_ERROR, this)
+    this.$emit(olObjectEvent.CREATE_ERROR, this, err)
+    this.$eventBus.$emit(olObjectEvent.CREATE_ERROR, this, err)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.error(`ol object ${EVENT_CREATE_ERROR}`, err)
+      this.$logger.error(`ol object ${olObjectEvent.CREATE_ERROR}`, err)
     }
 
     throw err
@@ -451,20 +553,22 @@ async function execInit () {
  */
 async function execDeinit () {
   try {
-    this._olObjectState = STATE_UNDEF
+    this._olObjectState = olObjectState.UNDEF
 
     await this.deinit()
 
-    this.$emit(EVENT_DESTROYED, this)
+    this.$emit(olObjectEvent.DESTROYED, this)
+    this.$eventBus.$emit(olObjectEvent.DESTROYED, this)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.log(`ol object ${EVENT_DESTROYED}`)
+      this.$logger.log(`ol object ${olObjectEvent.DESTROYED}`)
     }
   } catch (err) {
-    this.$emit(EVENT_DESTROY_ERROR, this)
+    this.$emit(olObjectEvent.DESTROY_ERROR, this, err)
+    this.$eventBus.$emit(olObjectEvent.DESTROY_ERROR, this, err)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.error(`ol object ${EVENT_DESTROY_ERROR}`, err)
+      this.$logger.error(`ol object ${olObjectEvent.DESTROY_ERROR}`, err)
     }
 
     throw err
@@ -477,24 +581,28 @@ async function execDeinit () {
  */
 async function execMount () {
   try {
-    this._olObjectState = STATE_MOUNTING
+    await this.beforeMount()
+
+    this._olObjectState = olObjectState.MOUNTING
 
     await this.mount()
 
-    this._olObjectState = STATE_MOUNTED
+    this._olObjectState = olObjectState.MOUNTED
 
-    this.$emit(EVENT_MOUNTED, this)
+    this.$emit(olObjectEvent.MOUNTED, this)
+    this.$eventBus.$emit(olObjectEvent.MOUNTED, this)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.log(`ol object ${EVENT_MOUNTED}`)
+      this.$logger.log(`ol object ${olObjectEvent.MOUNTED}`)
     }
   } catch (err) {
-    this._olObjectState = STATE_CREATED
+    this._olObjectState = olObjectState.CREATED
 
-    this.$emit(EVENT_MOUNT_ERROR, this)
+    this.$emit(olObjectEvent.MOUNT_ERROR, this, err)
+    this.$eventBus.$emit(olObjectEvent.MOUNT_ERROR, this, err)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.error(`ol object ${EVENT_MOUNT_ERROR}`, err)
+      this.$logger.error(`ol object ${olObjectEvent.MOUNT_ERROR}`, err)
     }
 
     throw err
@@ -507,20 +615,22 @@ async function execMount () {
  */
 async function execUnmount () {
   try {
-    this._olObjectState = STATE_CREATED
+    this._olObjectState = olObjectState.CREATED
 
     await this.unmount()
 
-    this.$emit(EVENT_UNMOUNTED, this)
+    this.$emit(olObjectEvent.UNMOUNTED, this)
+    this.$eventBus.$emit(olObjectEvent.UNMOUNTED, this)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.log(`ol object ${EVENT_UNMOUNTED}`)
+      this.$logger.log(`ol object ${olObjectEvent.UNMOUNTED}`)
     }
   } catch (err) {
-    this.$emit(EVENT_UNMOUNT_ERROR, this)
+    this.$emit(olObjectEvent.UNMOUNT_ERROR, this, err)
+    this.$eventBus.$emit(olObjectEvent.UNMOUNT_ERROR, this, err)
 
     if (process.env.VUELAYERS_DEBUG) {
-      this.$logger.error(`ol object ${EVENT_UNMOUNT_ERROR}`, err)
+      this.$logger.error(`ol object ${olObjectEvent.UNMOUNT_ERROR}`, err)
     }
 
     throw err

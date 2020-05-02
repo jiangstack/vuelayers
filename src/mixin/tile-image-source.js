@@ -39,8 +39,11 @@ export default {
   },
   methods: {
     ...pick(urlTileSource.methods, [
+      'triggerProps',
+      'beforeInit',
       'init',
       'deinit',
+      'beforeMount',
       'mount',
       'unmount',
       'refresh',

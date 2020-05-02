@@ -1,11 +1,10 @@
+import debounce from 'debounce-promise'
 import { boundingExtent } from 'ol/extent'
-// import GeometryLayout from 'ol/geom/GeometryLayout'
-import { distinctUntilChanged, map as mapObs, throttleTime } from 'rxjs/operators'
-import { transforms } from '../ol-ext'
-import { obsFromOlEvent } from '../rx-ext'
-import { isEmpty, isEqual, negate, pick } from '../util/minilo'
+import { findPointOnSurface, flatCoords, isEqualCoord, roundCoords, transformPoint } from '../ol-ext'
+import { clonePlainObject, isEmpty, negate, pick } from '../util/minilo'
 // import { makeWatchers } from '../util/vue-helpers'
 import geometry from './geometry'
+import { FRAME_TIME } from './ol-cmp'
 
 /**
  * Base simple geometry with coordinates mixin.
@@ -35,21 +34,69 @@ export default {
     // },
   },
   computed: {
-    coordinatesViewProj () {
-      if (!(this.rev && this.$geometry)) return
+    coordinatesDataProj () {
+      if (!this.type) return []
 
-      return this.$geometry.getCoordinates()
+      return roundCoords(this.type, this.coordinates)
+    },
+    coordinatesViewProj () {
+      return this.coordinatesToViewProj(this.coordinates)
+    },
+    currentCoordinatesDataProj () {
+      return this.coordinatesToDataProj(this.currentCoordinatesViewProj)
+    },
+    currentCoordinatesViewProj () {
+      if (!this.type) return []
+      if (this.rev && this.$geometry) {
+        return roundCoords(this.type, this.$geometry.getCoordinates())
+      }
+
+      return this.coordinatesViewProj
+    },
+    currentExtentDataProj () {
+      if (!this.type) return
+
+      return boundingExtent(flatCoords(this.type, this.currentCoordinatesDataProj))
+    },
+    currentExtentViewProj () {
+      if (!this.type) return
+
+      return boundingExtent(flatCoords(this.type, this.currentCoordinatesViewProj))
+    },
+    currentPointDataProj () {
+      if (!this.type) return
+
+      return findPointOnSurface({
+        type: this.type,
+        coordinates: this.currentCoordinatesDataProj,
+      })
+    },
+    currentPointViewProj () {
+      if (!this.pointDataProj) return
+
+      return transformPoint(this.currentPointDataProj, this.resolvedDataProjection, this.viewProjection)
     },
     // layoutUpCase () {
     //   return this.layout.toUpperCase()
     // },
   },
   watch: {
-    async coordinates (value) {
-      await this.setCoordinates(value)
+    currentCoordinatesDataProj: {
+      deep: true,
+      handler: debounce(function (value) {
+        if (isEqualCoord({
+          coordinates: value,
+          extent: boundingExtent(flatCoords(this.type, value)),
+        }, {
+          coordinates: this.coordinatesDataProj,
+          extent: this.extentDataProj,
+        })) return
+
+        this.$emit('update:coordinates', clonePlainObject(value))
+      }, FRAME_TIME),
     },
     async resolvedDataProjection () {
-      await this.setCoordinates(this.coordinates)
+      await this.setCoordinates(this.coordinatesDataProj)
     },
     // ...makeWatchers([
     //   'layoutUpCase',
@@ -57,68 +104,24 @@ export default {
   },
   methods: {
     /**
-     * @return {Promise<number[]>}
+     * @return {string[]}
      */
-    async getCoordinates () {
-      const coordinates = (await this.resolveGeometry()).getCoordinates()
-
-      return this.coordinatesToDataProj(coordinates)
-    },
-    /**
-     * @param {number[]} coordinates
-     */
-    async setCoordinates (coordinates) {
-      // compares in data projection
-      const isEq = isEqualGeom({
-        coordinates,
-        extent: boundingExtent(coordinates),
-      }, {
-        coordinates: await this.getCoordinates(),
-        extent: this.extent,
-      })
-
-      if (isEq) return
-
-      coordinates = await this.coordinatesToViewProj(coordinates)
-      const geom = await this.resolveGeometry()
-
-      geom.setCoordinates(coordinates)
-    },
-    /**
-     * @returns {number[]>}
-     */
-    async getFirstCoordinate () {
-      const coordinate = (await this.resolveGeometry()).getFirstCoordinate()
-
-      return this.pointToDataProj(coordinate)
-    },
-    /**
-     * @returns {Promise<number[]>}
-     */
-    async getLastCoordinate () {
-      const coordinate = (await this.resolveGeometry()).getLastCoordinate()
-
-      return this.pointToDataProj(coordinate)
-    },
-    /**
-     * @returns {Promise<string>}
-     */
-    async getCoordinatesLayout () {
-      return (await this.resolveGeometry()).getLayout()
-    },
-    /**
-     * @return {Promise<void>}
-     * @protected
-     */
-    subscribeAll () {
-      return Promise.all([
-        this::geometry.methods.subscribeAll(),
-        this::subscribeToGeomChanges(),
-      ])
+    triggerProps () {
+      return [
+        ...this::geometry.methods.triggerProps(),
+        'currentCoordinatesDataProj',
+        'currentCoordinatesViewProj',
+        'currentExtentDataProj',
+        'currentExtentViewProj',
+        'currentPointDataProj',
+        'currentPointViewProj',
+      ]
     },
     ...pick(geometry.methods, [
+      'beforeInit',
       'init',
       'deinit',
+      'beforeMount',
       'mount',
       'unmount',
       'refresh',
@@ -128,56 +131,59 @@ export default {
       'recreate',
       'scheduleRecreate',
       'getServices',
+      'subscribeAll',
       'resolveOlObject',
       'resolveGeometry',
     ]),
-  },
-}
-
-/**
- * @return {Promise<void>}
- * @private
- */
-async function subscribeToGeomChanges () {
-  const geometry = await this.resolveGeometry()
-
-  const ft = 1000 / 60
-  const changes = obsFromOlEvent(
-    geometry,
-    'change',
-    () => {
-      const { transform } = transforms[geometry.getType()]
-
-      return {
-        coordinates: transform(geometry.getCoordinates(), this.viewProjection, this.resolvedDataProjection),
-        extent: this.extent,
-      }
+    async onCoordinatesChanged (coordinates) {
+      await this.setCoordinates(coordinates)
     },
-  ).pipe(
-    throttleTime(ft),
-    distinctUntilChanged(isEqualGeom),
-    mapObs(({ coordinates }) => ({
-      prop: 'coordinates',
-      value: coordinates,
-    })),
-  )
+    /**
+     * @return {Promise<number[]>}
+     */
+    async getCoordinates () {
+      return this.coordinatesToDataProj((await this.resolveGeometry()).getCoordinates())
+    },
+    /**
+     * @param {number[]} coordinates
+     */
+    async setCoordinates (coordinates) {
+      coordinates = roundCoords(this.type, coordinates)
+      const currentCoordinates = await this.getCoordinates()
 
-  this.subscribeTo(changes, ({ prop, value }) => {
-    ++this.rev
+      if (isEqualCoord({
+        coordinates,
+        extent: boundingExtent(flatCoords(this.type, coordinates)),
+      }, {
+        coordinates: currentCoordinates,
+        extent: boundingExtent(flatCoords(this.type, currentCoordinates)),
+      })) return
 
-    this.$nextTick(() => {
-      this.$emit(`update:${prop}`, value)
-    })
-  })
-}
+      (await this.resolveGeometry()).setCoordinates(this.coordinatesToViewProj(coordinates))
+    },
+    /**
+     * @returns {number[]>}
+     */
+    async getFirstCoordinate () {
+      const coordinate = (await this.resolveGeometry()).getFirstCoordinate()
+      if (!coordinate) return
 
-/**
- * @param {{coordinates: number[], extent: number[]}} a
- * @param {{coordinates: number[], extent: number[]}} b
- * @returns {boolean}
- */
-function isEqualGeom (a, b) {
-  return isEqual(a.extent, b.extent)
-    ? isEqual(a.coordinates, b.coordinates)
-    : false
+      return this.pointToDataProj(coordinate)
+    },
+    /**
+     * @returns {Promise<number[]>}
+     */
+    async getLastCoordinate () {
+      const coordinate = (await this.resolveGeometry()).getLastCoordinate()
+      if (!coordinate) return
+
+      return this.pointToDataProj(coordinate)
+    },
+    /**
+     * @returns {Promise<string>}
+     */
+    async getCoordinatesLayout () {
+      return (await this.resolveGeometry()).getLayout()
+    },
+  },
 }

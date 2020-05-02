@@ -24,11 +24,6 @@
         default: true,
       },
     },
-    computed: {
-      dataFormat () {
-        return this.formatFactory()
-      },
-    },
     methods: {
       /**
        * @return {VectorTileSource}
@@ -42,7 +37,7 @@
           overlaps: this.overlaps,
           projection: this.projection,
           tileGrid: this._tileGrid,
-          tileLoadFunction: this.tileLoadFunction,
+          tileLoadFunction: this.tileLoadFunc,
           tileUrlFunction: this.urlFunc,
           wrapX: this.wrapX,
           transition: this.transition,

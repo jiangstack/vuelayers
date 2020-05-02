@@ -39,7 +39,7 @@
           className: this.className,
           opacity: this.opacity,
           visible: this.visible,
-          extent: this.extent,
+          extent: this.extentViewProj,
           zIndex: this.zIndex,
           minResolution: this.minResolution,
           maxResolution: this.maxResolution,
@@ -61,6 +61,12 @@
           // vector tile props
           renderMode: this.renderMode,
         })
+      },
+      triggerProps () {
+        return [
+          ...tileLayer.methods.triggerProps(),
+          ...vectorLayer.methods.triggerProps(),
+        ]
       },
     },
   }

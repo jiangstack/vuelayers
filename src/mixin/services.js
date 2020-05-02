@@ -2,7 +2,7 @@ import mergeDescriptors from '../util/multi-merge-descriptors'
 
 // todo uncomment when IE 11 will die
 // const SERVICES_PROP = Symbol('services')
-const SERVICES_PROP = 'services'
+export const SERVICES_PROP = 'services'
 
 /**
  * Service container mixin
@@ -17,6 +17,14 @@ export default {
     return {
       [SERVICES_PROP]: this.getServices(),
     }
+  },
+  created () {
+    Object.defineProperties(this, {
+      $SERVICES_PROP: {
+        enumerable: true,
+        get: () => SERVICES_PROP,
+      },
+    })
   },
   methods: {
     /**

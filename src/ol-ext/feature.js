@@ -1,7 +1,6 @@
 import { Feature } from 'ol'
 import { v4 as uuid } from 'uuid'
-import Vue from 'vue'
-import { isNumber, isPlainObject, isString } from '../util/minilo'
+import { isPlainObject, omit } from '../util/minilo'
 
 /**
  * @param {Object|module:ol/Feature~Feature|string|number} feature
@@ -11,10 +10,8 @@ import { isNumber, isPlainObject, isString } from '../util/minilo'
 export function getFeatureId (feature) {
   if (feature instanceof Feature) {
     return feature.getId()
-  } else if (isPlainObject(feature) || feature instanceof Vue) {
+  } else if (isPlainObject(feature)) {
     return feature.id
-  } else if (isString(feature) || isNumber(feature)) {
-    return feature
   }
 
   throw new Error('Illegal feature format')
@@ -30,7 +27,7 @@ export function setFeatureId (feature, featureId) {
     feature.setId(featureId)
 
     return feature
-  } else if (isPlainObject(feature) || feature instanceof Vue) {
+  } else if (isPlainObject(feature)) {
     feature.id = featureId
 
     return feature
@@ -52,15 +49,34 @@ export function initializeFeature (feature, defaultFeatureId) {
   return feature
 }
 
-/**
- * @param {module:ol/Feature~Feature} destFeature
- * @param {module:ol/Feature~Feature} srcFeature
- * @returns {module:ol/Feature~Feature}
- */
-export function mergeFeatures (destFeature, srcFeature) {
-  destFeature.setProperties({ ...srcFeature.getProperties() })
-  destFeature.setGeometry(srcFeature.getGeometry().clone())
-  destFeature.setStyle(srcFeature.getStyle() != null ? srcFeature.getStyle().clone() : undefined)
+export function getFeatureGeometryName (feature) {
+  if (feature instanceof Feature) {
+    return feature.getGeometryName()
+  }
+  return 'geometry'
+}
 
-  return destFeature
+export function cleanFeatureProperties (properties, geometryName = '') {
+  return omit(properties, [geometryName])
+}
+
+export function getFeatureProperties (feature) {
+  if (!feature) return
+
+  return cleanFeatureProperties(
+    feature.properties || feature.getProperties(),
+    getFeatureGeometryName(feature),
+  )
+}
+
+export function setFeatureProperties (feature, properties) {
+  if (!feature) return
+
+  properties = cleanFeatureProperties(properties, getFeatureGeometryName(feature))
+
+  if (feature instanceof Feature) {
+    feature.setProperties(properties)
+  } else {
+    feature.properties = properties
+  }
 }

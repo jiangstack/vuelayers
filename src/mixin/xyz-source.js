@@ -70,7 +70,7 @@ export default {
         zDirection: this.zDirection,
         tileGrid: this.tileGrid,
         // ol/source/UrlTile
-        tileLoadFunction: this.tileLoadFunction,
+        tileLoadFunction: this.tileLoadFunc,
         tileUrlFunction: this.urlFunc,
         // ol/source/TileImage
         crossOrigin: this.crossOrigin,
@@ -79,8 +79,11 @@ export default {
       })
     },
     ...pick(tileImageSource.methods, [
+      'triggerProps',
+      'beforeInit',
       'init',
       'deinit',
+      'beforeMount',
       'mount',
       'unmount',
       'refresh',

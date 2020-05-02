@@ -1,4 +1,6 @@
 import { fromEventPattern, merge as mergeObs } from 'rxjs'
+import { map as mapObs } from 'rxjs/operators'
+import { identity } from '../util/minilo'
 
 /**
  * Creates an Observable using OpenLayers event pattern that emits events coming from the given event target.
@@ -37,9 +39,10 @@ export default function fromOlEvent (target, eventName, selector) {
     )
   }
 
+  selector || (selector = identity)
+
   return fromEventPattern(
     handler => target.on(eventName, handler),
     handler => target.un(eventName, handler),
-    selector,
-  )
+  ).pipe(mapObs(selector))
 }

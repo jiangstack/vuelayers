@@ -1,8 +1,11 @@
 import { get as getProj } from 'ol/proj'
-import { getSourceId, initializeSource, setSourceId } from '../ol-ext'
-import { obsFromOlChangeEvent } from '../rx-ext'
-import { isArray, isEqual, isString, pick, waitFor } from '../util/minilo'
+import { merge as mergeObs } from 'rxjs'
+import { map as mapObs, skipWhile } from 'rxjs/operators'
+import { initializeSource, setSourceId } from '../ol-ext'
+import { obsFromOlChangeEvent, obsFromVueEvent, obsFromOlEvent } from '../rx-ext'
+import { addPrefix, hasProp, isArray, isEqual, isString, pick } from '../util/minilo'
 import mergeDescriptors from '../util/multi-merge-descriptors'
+import waitFor from '../util/wait-for'
 import olCmp from './ol-cmp'
 import stubVNode from './stub-vnode'
 
@@ -60,23 +63,8 @@ export default {
 
       return this.$source.getState()
     },
-    /**
-     * @returns {number[]|undefined}
-     */
-    resolutions () {
-      if (!(this.rev && this.$source)) return
-
-      try {
-        return this.$source.getResolutions()
-      } catch (err) {
-        return []
-      }
-    },
   },
   watch: {
-    async id (value) {
-      await this.setId(value)
-    },
     async attributions (value) {
       await this.setAttributions(value)
     },
@@ -114,6 +102,28 @@ export default {
   },
   methods: {
     /**
+     * @returns {Promise<void>}
+     * @protected
+     */
+    async beforeInit () {
+      try {
+        await waitFor(
+          () => this.$mapVm != null,
+          obsFromVueEvent(this.$eventBus, [
+            this.$olObjectEventEnum.CREATE_ERROR,
+          ]).pipe(
+            mapObs(([vm]) => hasProp(vm, '$map') && this.$vq.closest(vm)),
+          ),
+          1000,
+        )
+
+        return this::olCmp.methods.beforeInit()
+      } catch (err) {
+        err.message = 'Wait for $mapVm injection: ' + err.message
+        throw err
+      }
+    },
+    /**
      * @return {Promise<module:ol/source/Source~Source>}
      * @protected
      */
@@ -129,6 +139,74 @@ export default {
       throw new Error('Not implemented method: createSource')
     },
     /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        ...this::olCmp.methods.triggerProps(),
+        'state',
+      ]
+    },
+    /**
+     * @return {Promise<void>}
+     * @protected
+     */
+    async mount () {
+      if (this.$sourceContainer) {
+        await this.$sourceContainer.setSource(this)
+      }
+
+      return this::olCmp.methods.mount()
+    },
+    /**
+     * @return {Promise<void>}
+     * @protected
+     */
+    async unmount () {
+      if (this.$sourceContainer) {
+        await this.$sourceContainer.setSource(null)
+      }
+
+      return this::olCmp.methods.unmount()
+    },
+    /**
+     * @return {Object}
+     * @protected
+     */
+    getServices () {
+      const vm = this
+
+      return mergeDescriptors(
+        this::olCmp.methods.getServices(),
+        {
+          get sourceVm () { return vm },
+        },
+      )
+    },
+    /**
+     * @returns {void}
+     */
+    subscribeAll () {
+      this::olCmp.methods.subscribeAll()
+      this::subscribeToSourceEvents()
+    },
+    /**
+     * @return {Promise<module:ol/source/Source~Source>}
+     */
+    resolveSource: olCmp.methods.resolveOlObject,
+    ...pick(olCmp.methods, [
+      'init',
+      'deinit',
+      'beforeMount',
+      'refresh',
+      'scheduleRefresh',
+      'remount',
+      'scheduleRemount',
+      'recreate',
+      'scheduleRecreate',
+      'resolveOlObject',
+    ]),
+    /**
      * @returns {Promise<string|number>}
      */
     async getId () {
@@ -139,11 +217,9 @@ export default {
      * @returns {Promise<void>}
      */
     async setId (id) {
-      const source = await this.resolveSource()
+      if (id === await this.getId()) return
 
-      if (id === getSourceId(source)) return
-
-      setSourceId(source, id)
+      setSourceId(await this.resolveSource(), id)
     },
     /**
      * @returns {Promise<string>}
@@ -156,11 +232,9 @@ export default {
      * @returns {Promise<void>}
      */
     async setAttributions (attributions) {
-      const source = await this.resolveSource()
+      if (isEqual(attributions, await this.getAttributions())) return
 
-      if (isEqual(attributions, source.getAttributions())) return
-
-      source.setAttributions(attributions)
+      (await this.resolveSource()).setAttributions(attributions)
     },
     /**
      * @returns {Promise<boolean>}
@@ -204,74 +278,6 @@ export default {
     async clear () {
       (await this.resolveSource()).clear()
     },
-    /**
-     * @returns {Promise<void>}
-     * @protected
-     */
-    async init () {
-      await waitFor(() => this.$mapVm != null)
-
-      return this::olCmp.methods.init()
-    },
-    /**
-     * @return {Promise<void>}
-     * @protected
-     */
-    async mount () {
-      if (this.$sourceContainer) {
-        await this.$sourceContainer.setSource(this)
-      }
-
-      return this::olCmp.methods.mount()
-    },
-    /**
-     * @return {Promise<void>}
-     * @protected
-     */
-    async unmount () {
-      if (this.$sourceContainer) {
-        await this.$sourceContainer.setSource(null)
-      }
-
-      return this::olCmp.methods.unmount()
-    },
-    /**
-     * @return {Object}
-     * @protected
-     */
-    getServices () {
-      const vm = this
-
-      return mergeDescriptors(
-        this::olCmp.methods.getServices(),
-        {
-          get sourceVm () { return vm },
-        },
-      )
-    },
-    /**
-     * @returns {Promise<void>}
-     */
-    async subscribeAll () {
-      await Promise.all([
-        this::olCmp.methods.subscribeAll(),
-        this::subscribeToSourceEvents(),
-      ])
-    },
-    /**
-     * @return {Promise<module:ol/source/Source~Source>}
-     */
-    resolveSource: olCmp.methods.resolveOlObject,
-    ...pick(olCmp.methods, [
-      'deinit',
-      'refresh',
-      'scheduleRefresh',
-      'remount',
-      'scheduleRemount',
-      'recreate',
-      'scheduleRecreate',
-      'resolveOlObject',
-    ]),
   },
 }
 
@@ -309,17 +315,21 @@ function defineServices () {
 }
 
 async function subscribeToSourceEvents () {
-  const source = await this.resolveSource()
-
-  const changes = obsFromOlChangeEvent(source, [
+  const prefixKey = addPrefix('current')
+  const propChanges = obsFromOlChangeEvent(this.$source, [
     'id',
-  ], true, 1000 / 60)
-
-  this.subscribeTo(changes, ({ prop, value }) => {
+  ], true, evt => ({
+    ...evt,
+    compareWith: this[prefixKey(evt.prop)],
+  })).pipe(
+    skipWhile(({ value, compareWith }) => isEqual(value, compareWith)),
+  )
+  const changes = obsFromOlEvent(this.$source, 'change')
+  const events = mergeObs(
+    propChanges,
+    changes,
+  )
+  this.subscribeTo(events, () => {
     ++this.rev
-
-    this.$nextTick(() => {
-      this.$emit(`update:${prop}`, value)
-    })
   })
 }

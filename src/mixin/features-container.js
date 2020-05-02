@@ -1,11 +1,13 @@
-import { Collection, Feature, getUid as getObjectUid } from 'ol'
-import { merge as mergeObs } from 'rxjs'
-import { debounceTime } from 'rxjs/operators'
-import { getFeatureId, initializeFeature, mergeFeatures } from '../ol-ext'
+import debounce from 'debounce-promise'
+import { Collection, Feature, getUid } from 'ol'
+import { from as fromObs, merge as mergeObs } from 'rxjs'
+import { map as mapObs, switchMap, tap } from 'rxjs/operators'
+import { getFeatureId, initializeFeature } from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
-import { isFunction, isPlainObject, map } from '../util/minilo'
+import { clonePlainObject, isEqual, isFunction, isPlainObject, map } from '../util/minilo'
 import identMap from './ident-map'
+import { FRAME_TIME } from './ol-cmp'
 import projTransforms from './proj-transforms'
 import rxSubs from './rx-subs'
 
@@ -57,6 +59,12 @@ export default {
     },
   },
   watch: {
+    featuresDataProj: {
+      deep: true,
+      handler: debounce(async function (value, prev) {
+        await this.onFeaturesChanged(value, prev)
+      }, FRAME_TIME),
+    },
     featuresCollectionIdent (value, prevValue) {
       if (value && prevValue) {
         this.moveInstance(value, prevValue)
@@ -80,6 +88,41 @@ export default {
   },
   methods: {
     /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        'featureIds',
+        'featuresViewProj',
+        'featuresDataProj',
+      ]
+    },
+    /**
+     * @returns {{readonly featuresContainer: Object}}
+     * @protected
+     */
+    getServices () {
+      const vm = this
+
+      return {
+        get featuresContainer () { return vm },
+      }
+    },
+    /**
+     * @param {FeatureLike} feature
+     * @return {Promise<Feature>}
+     * @protected
+     */
+    async initializeFeature (feature) {
+      if (isFunction(feature?.resolveOlObject)) {
+        feature = await feature.resolveOlObject()
+      } else if (isPlainObject(feature)) {
+        feature = this.readFeatureInDataProj(feature)
+      }
+
+      return initializeFeature(feature)
+    },
+    /**
      * @param {FeatureLike[]|module:ol/Collection~Collection<FeatureLike>} features
      * @return {Promise<void>}
      */
@@ -91,21 +134,13 @@ export default {
      * @return {Promise<void>}
      */
     async addFeature (feature) {
-      initializeFeature(feature)
-
-      if (isFunction(feature.resolveOlObject)) {
-        feature = await feature.resolveOlObject()
-      } else if (isPlainObject(feature)) {
-        feature = this.readFeatureInDataProj(feature)
-      }
+      feature = await this.initializeFeature(feature)
 
       instanceOf(feature, Feature)
       // todo add hash {featureId => featureIdx, ....}
       const foundFeature = this.getFeatureById(getFeatureId(feature))
       if (foundFeature == null) {
         this.$featuresCollection.push(feature)
-      } else {
-        mergeFeatures(foundFeature, feature)
       }
     },
     /**
@@ -167,19 +202,13 @@ export default {
     /**
      * @returns {boolean}
      */
-    isEmpty () {
+    hasFeatures () {
       return this.getFeatures().length === 0
     },
-    /**
-     * @returns {{readonly featuresContainer: Object}}
-     * @protected
-     */
-    getServices () {
-      const vm = this
+    onFeaturesChanged (features, prevFeatures) {
+      if (isEqual(features, prevFeatures)) return
 
-      return {
-        get featuresContainer () { return vm },
-      }
+      this.$emit('update:features', clonePlainObject(features))
     },
   },
 }
@@ -194,38 +223,35 @@ function defineServices () {
 }
 
 function subscribeToCollectionEvents () {
-  const adds = obsFromOlEvent(this.$featuresCollection, 'add')
-  this.subscribeTo(adds, ({ element }) => {
-    const elementUid = getObjectUid(element)
-    const propChanges = obsFromOlEvent(element, 'propertychange')
-    const otherChanges = obsFromOlEvent(element, 'change')
-    const featureChanges = mergeObs(propChanges, otherChanges).pipe(
-      debounceTime(1000 / 60),
-    )
-
-    this._featureSubs[elementUid] = this.subscribeTo(featureChanges, () => {
-      ++this.rev
-    })
-
+  const adds = obsFromOlEvent(this.$featuresCollection, 'add').pipe(
+    switchMap(({ type, element }) => fromObs(this.initializeFeature(element)).pipe(
+      mapObs(element => ({ type, element })),
+    )),
+    tap(({ type, element }) => {
+      const uid = getUid(element)
+      const propChanges = obsFromOlEvent(element, 'propertychange')
+      const changes = obsFromOlEvent(element, 'change')
+      const events = mergeObs(
+        propChanges,
+        changes,
+      )
+      this._featureSubs[uid] = this.subscribeTo(events, () => {
+        ++this.rev
+      })
+    }),
+  )
+  const removes = obsFromOlEvent(this.$featuresCollection, 'remove').pipe(
+    tap(({ type, element }) => {
+      const uid = getUid(element)
+      if (this._featureSubs[uid]) {
+        this.unsubscribe(this._featureSubs[uid])
+        delete this._featureSubs[uid]
+      }
+    }),
+  )
+  this.subscribeTo(mergeObs(adds, removes), ({ type, element }) => {
     ++this.rev
 
-    this.$nextTick(() => {
-      this.$emit('addfeature', element)
-    })
-  })
-
-  const removes = obsFromOlEvent(this.$featuresCollection, 'remove')
-  this.subscribeTo(removes, ({ element }) => {
-    const elementUid = getObjectUid(element)
-    if (this._featureSubs[elementUid]) {
-      this.unsubscribe(this._featureSubs[elementUid])
-      delete this._featureSubs[elementUid]
-    }
-
-    ++this.rev
-
-    this.$nextTick(() => {
-      this.$emit('removefeature', element)
-    })
+    this.$nextTick(() => this.$emit(type + 'feature', element))
   })
 }

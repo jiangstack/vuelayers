@@ -1,5 +1,5 @@
 import { merge as mergeObs } from 'rxjs'
-import { distinctUntilChanged, map as mapObs, debounceTime } from 'rxjs/operators'
+import { distinctUntilChanged, map as mapObs } from 'rxjs/operators'
 import { isEqual, isFunction } from '../util/minilo'
 import fromOlEvent from './from-ol-event'
 
@@ -8,13 +8,17 @@ import fromOlEvent from './from-ol-event'
  * @param {module:ol/Observable~Observable} target
  * @param {string|string[]} [prop]
  * @param {boolean|function(a, b):boolean|undefined} [distinct] Distinct values by isEqual fn or by custom comparator
- * @param {number|undefined} [debounce] Debounce values by passed amount of ms.
  * @param {function|undefined} [selector] Custom selector
  * @return {Observable<{prop: string, value: *}>}
  */
-export default function fromOlChangeEvent (target, prop, distinct, debounce, selector) {
+export default function fromOlChangeEvent (
+  target,
+  prop,
+  distinct,
+  selector,
+) {
   if (Array.isArray(prop)) {
-    return mergeObs(...prop.map(p => fromOlChangeEvent(target, p)))
+    return mergeObs(...prop.map(p => fromOlChangeEvent(target, p, distinct, selector)))
   }
 
   selector = selector || ((target, prop) => target.get(prop))
@@ -22,9 +26,6 @@ export default function fromOlChangeEvent (target, prop, distinct, debounce, sel
   const observable = fromOlEvent(target, event, () => selector(target, prop))
   const operations = []
 
-  if (debounce != null) {
-    operations.push(debounceTime(debounce))
-  }
   if (distinct) {
     isFunction(distinct) || (distinct = isEqual)
     operations.push(distinctUntilChanged(distinct))

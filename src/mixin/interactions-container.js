@@ -1,6 +1,7 @@
 import { Collection } from 'ol'
 import { defaults as createDefaultInteractions, Interaction } from 'ol/interaction'
-import { merge as mergeObs } from 'rxjs'
+import { from as fromObs, merge as mergeObs } from 'rxjs'
+import { switchMap, map as mapObs } from 'rxjs/operators'
 import { getInteractionId, getInteractionPriority, initializeInteraction } from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
@@ -61,6 +62,25 @@ export default {
   },
   methods: {
     /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        'interactionIds',
+      ]
+    },
+    /**
+     * @returns {{readonly interactionsContainer: Object}}
+     * @protected
+     */
+    getServices () {
+      const vm = this
+
+      return {
+        get interactionsContainer () { return vm },
+      }
+    },
+    /**
      * @param {InteractionLike[]|module:ol/Collection~Collection<InteractionLike>} defaultInteractions
      * @returns {Promise<void>}
      */
@@ -81,12 +101,19 @@ export default {
         await this.addInteractions(interactions)
       }
     },
+    async initializeInteraction (interaction) {
+      if (isFunction(interaction.resolveOlObject)) {
+        interaction = await interaction.resolveOlObject()
+      }
+
+      return initializeInteraction(interaction)
+    },
     /**
      * @param {InteractionLike} interaction
      * @return {void}
      */
     async addInteraction (interaction) {
-      initializeInteraction(interaction)
+      interaction = await this.initializeInteraction(interaction)
 
       if (isFunction(interaction.resolveOlObject)) {
         interaction = await interaction.resolveOlObject()
@@ -176,17 +203,6 @@ export default {
     clearInteractions () {
       this.$interactionsCollection.clear()
     },
-    /**
-     * @returns {{readonly interactionsContainer: Object}}
-     * @protected
-     */
-    getServices () {
-      const vm = this
-
-      return {
-        get interactionsContainer () { return vm },
-      }
-    },
   },
 }
 
@@ -200,7 +216,11 @@ function defineServices () {
 }
 
 function subscribeToCollectionEvents () {
-  const adds = obsFromOlEvent(this.$interactionsCollection, 'add')
+  const adds = obsFromOlEvent(this.$interactionsCollection, 'add').pipe(
+    switchMap(({ type, element }) => fromObs(this.initializeInteraction(element)).pipe(
+      mapObs(element => ({ type, element })),
+    )),
+  )
   const removes = obsFromOlEvent(this.$interactionsCollection, 'remove')
 
   this.subscribeTo(mergeObs(adds, removes), ({ type, element }) => {

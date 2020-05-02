@@ -14,9 +14,11 @@
 </template>
 
 <script>
+  import debounce from 'debounce-promise'
   import { Text as TextStyle } from 'ol/style'
-  import { fillStyleContainer, strokeStyleContainer, style } from '../../mixin'
-  import { isEqual, isFunction } from '../../util/minilo'
+  import { fillStyleContainer, FRAME_TIME, strokeStyleContainer, style } from '../../mixin'
+  import { dumpFillStyle, dumpStrokeStyle } from '../../ol-ext'
+  import { clonePlainObject, isEqual, isFunction } from '../../util/minilo'
   import mergeDescriptors from '../../util/multi-merge-descriptors'
   import BackgroundStyle from './background.vue'
   import FillStyle from './fill'
@@ -80,6 +82,18 @@
         validate: val => val.length && val.length === 4,
       },
     },
+    computed: {
+      backgroundFill () {
+        if (!(this.rev && this.$bgFill)) return
+
+        return dumpFillStyle(this.$bgFill)
+      },
+      backgroundStroke () {
+        if (!(this.rev && this.$bgStroke)) return
+
+        return dumpStrokeStyle(this.$bgStroke)
+      },
+    },
     watch: {
       async font (value) {
         await this.setFont(value)
@@ -120,6 +134,22 @@
       async padding (value) {
         await this.setPadding(value)
       },
+      backgroundFill: {
+        deep: true,
+        handler: debounce(function (value, prev) {
+          if (isEqual(value, prev)) return
+
+          this.$emit('update:backgroundFill', value && clonePlainObject(value))
+        }, FRAME_TIME),
+      },
+      backgroundStroke: {
+        deep: true,
+        handler: debounce(function (value, prev) {
+          if (isEqual(value, prev)) return
+
+          this.$emit('update:backgroundStroke', value && clonePlainObject(value))
+        }, FRAME_TIME),
+      },
     },
     created () {
       this._bgFill = undefined
@@ -155,15 +185,61 @@
           backgroundStroke: this.$bgStroke,
         })
       },
+      /**
+       * @return {string[]}
+       */
+      triggerProps () {
+        return [
+          ...this::fillStyleContainer.methods.triggerProps(),
+          ...this::strokeStyleContainer.methods.triggerProps(),
+          ...this::style.methods.triggerProps(),
+        ]
+      },
+      /**
+       * @return {Promise<void>}
+       * @protected
+       */
+      async mount () {
+        if (this.$textStyleContainer) {
+          await this.$textStyleContainer.setText(this)
+        }
+
+        return this::style.methods.mount()
+      },
+      /**
+       * @return {Promise<void>}
+       * @protected
+       */
+      async unmount () {
+        if (this.$textStyleContainer) {
+          await this.$textStyleContainer.setText(null)
+        }
+
+        return this::style.methods.unmount()
+      },
+      /**
+       * @returns {Object}
+       * @protected
+       */
+      getServices () {
+        const vm = this
+
+        return mergeDescriptors(
+          this::style.methods.getServices(),
+          this::fillStyleContainer.methods.getServices(),
+          this::strokeStyleContainer.methods.getServices(),
+          {
+            get bgStyleContainer () { return vm },
+          },
+        )
+      },
       async getFont () {
         return (await this.resolveStyle()).getFont()
       },
       async setFont (font) {
-        const style = await this.resolveStyle()
+        if (font === await this.getFont()) return
 
-        if (font === style.getFont()) return
-
-        style.setFont(font)
+        (await this.resolveStyle()).setFont(font)
 
         await this.scheduleRemount()
       },
@@ -171,11 +247,9 @@
         return (await this.resolveStyle()).getMaxAngle()
       },
       async setMaxAngle (maxAngle) {
-        const style = await this.resolveStyle()
+        if (maxAngle === await this.getMaxAngle()) return
 
-        if (maxAngle === style.getMaxAngle()) return
-
-        style.setMaxAngle(maxAngle)
+        (await this.resolveStyle()).setMaxAngle(maxAngle)
 
         await this.scheduleRemount()
       },
@@ -183,11 +257,9 @@
         return (await this.resolveStyle()).getOffsetX()
       },
       async setOffsetX (offsetX) {
-        const style = await this.resolveStyle()
+        if (offsetX === await this.getOffsetX()) return
 
-        if (offsetX === style.getOffsetX()) return
-
-        style.setOffsetX(offsetX)
+        (await this.resolveStyle()).setOffsetX(offsetX)
 
         await this.scheduleRemount()
       },
@@ -195,11 +267,9 @@
         return (await this.resolveStyle()).getOffsetY()
       },
       async setOffsetY (offsetY) {
-        const style = await this.resolveStyle()
+        if (offsetY === await this.getOffsetY()) return
 
-        if (offsetY === style.getOffsetY()) return
-
-        style.setOffsetY(offsetY)
+        (await this.resolveStyle()).setOffsetY(offsetY)
 
         await this.scheduleRemount()
       },
@@ -207,11 +277,9 @@
         return (await this.resolveStyle()).getOverflow()
       },
       async setOverflow (overflow) {
-        const style = await this.resolveStyle()
+        if (overflow === await this.getOverflow()) return
 
-        if (overflow === style.getOverflow()) return
-
-        style.setOverflow(overflow)
+        (await this.resolveStyle()).setOverflow(overflow)
 
         await this.scheduleRemount()
       },
@@ -219,11 +287,9 @@
         return (await this.resolveStyle()).getPadding()
       },
       async setPadding (padding) {
-        const style = await this.resolveStyle()
+        if (isEqual(padding, await this.getPadding())) return
 
-        if (isEqual(padding, style.getPadding())) return
-
-        style.setPadding(padding)
+        (await this.resolveStyle()).setPadding(padding)
 
         await this.scheduleRemount()
       },
@@ -231,11 +297,9 @@
         return (await this.resolveStyle()).getPlacement()
       },
       async setPlacement (placement) {
-        const style = await this.resolveStyle()
+        if (placement === await this.getPlacement()) return
 
-        if (placement === style.getPlacement()) return
-
-        style.setPlacement(placement)
+        (await this.resolveStyle()).setPlacement(placement)
 
         await this.scheduleRemount()
       },
@@ -243,11 +307,9 @@
         return (await this.resolveStyle()).getRotateWithView()
       },
       async setRotateWithView (rotateWithView) {
-        const style = await this.resolveStyle()
+        if (rotateWithView === await this.getRotateWithView()) return
 
-        if (rotateWithView === style.getRotateWithView()) return
-
-        style.setRotateWithView(rotateWithView)
+        (await this.resolveStyle()).setRotateWithView(rotateWithView)
 
         await this.scheduleRemount()
       },
@@ -255,11 +317,9 @@
         return (await this.resolveStyle()).getRotation()
       },
       async setRotation (rotation) {
-        const style = await this.resolveStyle()
+        if (rotation === await this.getRotation()) return
 
-        if (rotation === style.getRotation()) return
-
-        style.setRotation(rotation)
+        (await this.resolveStyle()).setRotation(rotation)
 
         await this.scheduleRemount()
       },
@@ -267,11 +327,9 @@
         return (await this.resolveStyle()).getScale()
       },
       async setScale (scale) {
-        const style = await this.resolveStyle()
+        if (scale === await this.getScale()) return
 
-        if (scale === style.getScale()) return
-
-        style.setScale(scale)
+        (await this.resolveStyle()).setScale(scale)
 
         await this.scheduleRemount()
       },
@@ -279,11 +337,9 @@
         return (await this.resolveStyle()).getText()
       },
       async setText (text) {
-        const style = await this.resolveStyle()
+        if (text === await this.getText()) return
 
-        if (text === style.getText()) return
-
-        style.setText(text)
+        (await this.resolveStyle()).setText(text)
 
         await this.scheduleRemount()
       },
@@ -291,11 +347,9 @@
         return (await this.resolveStyle()).getTextAlign()
       },
       async setTextAlign (textAlign) {
-        const style = await this.resolveStyle()
+        if (textAlign === await this.getTextAlign()) return
 
-        if (textAlign === style.getTextAlign()) return
-
-        style.setTextAlign(textAlign)
+        (await this.resolveStyle()).setTextAlign(textAlign)
 
         await this.scheduleRemount()
       },
@@ -303,11 +357,9 @@
         return (await this.resolveStyle()).getTextBaseline()
       },
       async setTextBaseline (textBaseline) {
-        const style = await this.resolveStyle()
+        if (textBaseline === await this.getTextBaseline()) return
 
-        if (textBaseline === style.getTextBaseline()) return
-
-        style.setTextBaseline(textBaseline)
+        (await this.resolveStyle()).setTextBaseline(textBaseline)
 
         await this.scheduleRemount()
       },
@@ -355,9 +407,10 @@
 
         const style = await this.resolveStyle()
         if (fill !== style.getBackgroundFill()) {
-          style.setBackgroundFill(fill)
           this._bgFill = fill
           this._bgFillVm = fillVm || (fill?.vm && fill.vm[0])
+          style.setBackgroundFill(fill)
+          ++this.rev
 
           if (process.env.VUELAYERS_DEBUG) {
             this.$logger.log('backgroundFill changed, scheduling remount...')
@@ -378,56 +431,17 @@
 
         const style = await this.resolveStyle()
         if (stroke !== style.getBackgroundStroke()) {
-          style.setBackgroundStroke(stroke)
           this._bgStroke = stroke
           this._bgStrokeVm = strokeVm || (stroke?.vm && stroke.vm[0])
+          style.setBackgroundStroke(stroke)
+          ++this.rev
 
           if (process.env.VUELAYERS_DEBUG) {
             this.$logger.log('backgroundStroke changed, scheduling remount...')
           }
 
           await this.scheduleRemount()
-
-          await this.scheduleRemount()
         }
-      },
-      /**
-       * @return {Promise<void>}
-       * @protected
-       */
-      async mount () {
-        if (this.$textStyleContainer) {
-          await this.$textStyleContainer.setText(this)
-        }
-
-        return this::style.methods.mount()
-      },
-      /**
-       * @return {Promise<void>}
-       * @protected
-       */
-      async unmount () {
-        if (this.$textStyleContainer) {
-          await this.$textStyleContainer.setText(null)
-        }
-
-        return this::style.methods.unmount()
-      },
-      /**
-       * @returns {Object}
-       * @protected
-       */
-      getServices () {
-        const vm = this
-
-        return mergeDescriptors(
-          this::style.methods.getServices(),
-          this::fillStyleContainer.methods.getServices(),
-          this::strokeStyleContainer.methods.getServices(),
-          {
-            get bgStyleContainer () { return vm },
-          },
-        )
       },
     },
   }

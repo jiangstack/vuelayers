@@ -84,6 +84,14 @@ export default {
 
       return sealFactory(::this.derivedTileGridFactory)
     },
+    /**
+     * @returns {number[]|undefined}
+     */
+    resolutions () {
+      if (!(this.rev && this.$source)) return
+
+      return this.$source.getResolutions()
+    },
   },
   watch: {
     async opaque (value) {
@@ -158,6 +166,30 @@ export default {
     }
   },
   methods: {
+    triggerProps () {
+      return [
+        ...this::source.methods.triggerProps(),
+        'resolutions',
+      ]
+    },
+    ...pick(source.methods, [
+      'beforeInit',
+      'init',
+      'deinit',
+      'beforeMount',
+      'mount',
+      'unmount',
+      'refresh',
+      'scheduleRefresh',
+      'remount',
+      'scheduleRemount',
+      'recreate',
+      'scheduleRecreate',
+      'getServices',
+      'subscribeAll',
+      'resolveOlObject',
+      'resolveSource',
+    ]),
     /**
      * @param {module:ol/proj.ProjectionLike} projection
      * @param {number} z
@@ -194,11 +226,9 @@ export default {
      * @returns {Promise<void>}
      */
     async setTileKey (key) {
-      const source = await this.resolveSource()
+      if (key === await this.getTileKey(key)) return
 
-      if (key === source.getKey(key)) return
-
-      source.setKey(key)
+      (await this.resolveSource()).setKey(key)
     },
     /**
      * @returns {Promise<boolean>}
@@ -281,21 +311,5 @@ export default {
 
       return (await this.resolveSource()).getTileCoordForTileUrlFunction(tileCoord, projection)
     },
-    ...pick(source.methods, [
-      'init',
-      'deinit',
-      'mount',
-      'unmount',
-      'refresh',
-      'scheduleRefresh',
-      'remount',
-      'scheduleRemount',
-      'recreate',
-      'scheduleRecreate',
-      'getServices',
-      'subscribeAll',
-      'resolveOlObject',
-      'resolveSource',
-    ]),
   },
 }

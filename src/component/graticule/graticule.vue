@@ -10,12 +10,9 @@
 </template>
 
 <script>
-  import Graticule from 'ol/Graticule'
-  import { throttleTime } from 'rxjs/operators'
+  import Graticule from 'ol/layer/Graticule'
   import Vue from 'vue'
-  import { olCmp, projTransforms, waitForMap } from '../../mixin'
-  import { obsFromOlEvent } from '../../rx-ext'
-  import { hasGraticule, hasMap } from '../../util/assert'
+  import { olCmp, projTransforms } from '../../mixin'
   import { firstEl, map } from '../../util/minilo'
   import mergeDescriptors from '../../util/multi-merge-descriptors'
   import { makeWatchers } from '../../util/vue-helpers'
@@ -25,7 +22,6 @@
     mixins: [
       projTransforms,
       olCmp,
-      waitForMap,
     ],
     stubVNode: {
       empty: false,
@@ -67,14 +63,14 @@
     computed: {
       meridians () {
         if (this.$graticule && this.rev) {
-          return map(this.getMeridians(), meridian => this.lineToDataProj(meridian.getCoordinates()))
+          return map(this.getMeridians(), meridian => this.lineToDataProj(meridian.getCoordinates(), 8))
         }
 
         return []
       },
       parallels () {
         if (this.$graticule && this.rev) {
-          return map(this.getParallels(), parallel => this.lineToDataProj(parallel.getCoordinates()))
+          return map(this.getParallels(), parallel => this.lineToDataProj(parallel.getCoordinates(), 8))
         }
 
         return []
@@ -144,23 +140,21 @@
        */
       mount () {
         this.$map && this.$graticule.setMap(this.$map)
-        this.subscribeAll()
       },
       /**
        * @return {void}
        * @protected
        */
       unmount () {
-        this.unsubscribeAll()
         this.$graticule.setMap(undefined)
       },
       getMeridians () {
-        hasGraticule(this)
+        // hasGraticule(this)
 
         return this.$graticule.getMeridians()
       },
       getParallels () {
-        hasGraticule(this)
+        // hasGraticule(this)
 
         return this.$graticule.getParallels()
       },
@@ -177,7 +171,7 @@
 
         let vm
         if (text) {
-          vm = firstEl(text[this.$options.VM_PROP])
+          vm = firstEl(text[this.$VM_PROP])
         }
 
         const vmMatcher = vnode => vnode.componentInstance && vnode.componentInstance === vm
@@ -225,26 +219,26 @@
         enumerable: true,
         get: () => this.$olObject,
       },
-      $map: {
+      $mapVm: {
         enumerable: true,
-        get: () => this.$services && this.$services.map,
+        get: () => this.$services?.mapVm,
       },
-      $view: {
+      $viewVm: {
         enumerable: true,
-        get: () => this.$services && this.$services.view,
+        get: () => this.$services?.viewVm,
       },
     })
   }
 
   function subscribeToEvents () {
-    hasMap(this)
-
-    const ft = 1000 / 60
-    const postcompose = obsFromOlEvent(this.$map, 'postcompose')
-      .pipe(throttleTime(ft))
-
-    this.subscribeTo(postcompose, () => {
-      ++this.rev
-    })
+    // hasMap(this)
+    //
+    // const ft = 1000 / 60
+    // const postcompose = obsFromOlEvent(this.$map, 'postcompose')
+    //   .pipe(throttleTime(ft))
+    //
+    // this.subscribeTo(postcompose, () => {
+    //   ++this.rev
+    // })
   }
 </script>

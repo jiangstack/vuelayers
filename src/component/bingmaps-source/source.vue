@@ -49,10 +49,27 @@
       },
     },
     watch: {
+      async apiKey (value) {
+        if (value === await this.getApiKey()) return
+
+        if (process.env.VUELAYERS_DEBUG) {
+          this.$logger.log('apiKey changed, scheduling recreate...')
+        }
+
+        await this.scheduleRecreate()
+      },
+      async imagerySet (value) {
+        if (value === await this.getImagerySet()) return
+
+        if (process.env.VUELAYERS_DEBUG) {
+          this.$logger.log('imagerySet changed, scheduling recreate...')
+        }
+
+        await this.scheduleRecreate()
+      },
       ...makeWatchers([
         'hidpi',
         'culture',
-        'apiKey',
         'imagerySet',
       ], prop => async function () {
         if (process.env.VUELAYERS_DEBUG) {
@@ -76,7 +93,7 @@
           opaque: this.opaque,
           transition: this.transition,
           // ol/source/UrlTile
-          tileLoadFunction: this.tileLoadFunction,
+          tileLoadFunction: this.tileLoadFunc,
           // ol/source/TileImage
           crossOrigin: this.crossOrigin,
           reprojectionErrorThreshold: this.reprojectionErrorThreshold,
@@ -88,6 +105,12 @@
           key: this.apiKey,
           imagerySet: this.imagerySet,
         })
+      },
+      async getApiKey () {
+        return (await this.resolveSource()).getApiKey()
+      },
+      async getImagerySet () {
+        return (await this.resolveSource()).getImagerySet()
       },
     },
   }

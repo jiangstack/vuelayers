@@ -29,11 +29,23 @@ function plugin (Vue, options = {}) {
   Vue.component(Stroke.name, Stroke)
   Vue.component(Style.name, Style)
   Vue.component(Text.name, Text)
+
+  // todo remove in v0.13.x
+  Vue.component('VlStyleBox', {
+    name: 'VlStyleBox',
+    extends: Style,
+    created () {
+      if (process.env.NODE_ENV !== 'production') {
+        this.$logger.warn('VlStyleBox component is deprecated. Use VlStyle component instead.')
+      }
+    },
+  })
 }
 
 export default plugin
 
 export {
+  plugin as install,
   Circle,
   Fill,
   Icon,
@@ -41,5 +53,4 @@ export {
   Stroke,
   Style,
   Text,
-  plugin as install,
 }

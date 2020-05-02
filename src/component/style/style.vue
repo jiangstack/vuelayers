@@ -2,7 +2,7 @@
   <i
     :id="vmId"
     :class="vmClass"
-    style="display: none">
+    style="display: none !important;">
     <slot>
       <CircleStyle />
       <FillStyle />
@@ -21,7 +21,6 @@
     style,
     textStyleContainer,
   } from '../../mixin'
-  import { constant, isFunction } from '../../util/minilo'
   import mergeDescriptors from '../../util/multi-merge-descriptors'
   import CircleStyle from './circle.vue'
   import FillStyle from './fill.vue'
@@ -69,21 +68,10 @@
        */
       renderer: Function,
       /**
-       * This condition will be resolved at the style compile time.
-       * @type {function|boolean}
+       * @deprecated Use v-if directive.
+       * @todo remove in v0.13.x
        */
-      condition: {
-        type: [Function, Boolean],
-        default: true,
-      },
-    },
-    computed: {
-      /**
-       * @type {function}
-       */
-      conditionFunc () {
-        return isFunction(this.condition) ? this.condition : constant(this.condition)
-      },
+      condition: [Boolean, Function],
     },
     watch: {
       async zIndex (value) {
@@ -92,9 +80,20 @@
       async renderer (value) {
         await this.setRenderer(value)
       },
-      async conditionFunc (value) {
-        await this.scheduleRemount()
-      },
+    },
+    created () {
+      if (process.env.NODE_ENV !== 'production') {
+        if (this.condition) {
+          this.$logger.warn("'condition' is deprecated. Use v-if directive instead.")
+        }
+      }
+    },
+    updated () {
+      if (process.env.NODE_ENV !== 'production') {
+        if (this.condition) {
+          this.$logger.warn("'condition' is deprecated. Use v-if directive instead.")
+        }
+      }
     },
     methods: {
       /**
@@ -112,15 +111,62 @@
           geometry: this.$geometry,
         })
       },
+      /**
+       * @return {string[]}
+       */
+      triggerProps () {
+        return [
+          ...this::fillStyleContainer.methods.triggerProps(),
+          ...this::strokeStyleContainer.methods.triggerProps(),
+          ...this::textStyleContainer.methods.triggerProps(),
+          ...this::imageStyleContainer.methods.triggerProps(),
+          ...this::geometryContainer.methods.triggerProps(),
+          ...this::style.methods.triggerProps(),
+        ]
+      },
+      /**
+       * @return {Promise<void>}
+       * @protected
+       */
+      async mount () {
+        if (this.$styleContainer) {
+          await this.$styleContainer.addStyle(this)
+        }
+
+        return this::style.methods.mount()
+      },
+      /**
+       * @return {Promise<void>}
+       * @protected
+       */
+      async unmount () {
+        if (this.$styleContainer) {
+          await this.$styleContainer.removeStyle(this)
+        }
+
+        return this::style.methods.unmount()
+      },
+      /**
+       * @returns {Object}
+       * @protected
+       */
+      getServices () {
+        return mergeDescriptors(
+          this::style.methods.getServices(),
+          this::fillStyleContainer.methods.getServices(),
+          this::strokeStyleContainer.methods.getServices(),
+          this::textStyleContainer.methods.getServices(),
+          this::imageStyleContainer.methods.getServices(),
+          this::geometryContainer.methods.getServices(),
+        )
+      },
       async getZIndex () {
         return (await this.resolveStyle()).getZIndex()
       },
       async setZIndex (zIndex) {
-        const style = await this.resolveStyle()
+        if (zIndex === await this.getZIndex()) return
 
-        if (zIndex === style.getZIndex()) return
-
-        style.setZIndex(zIndex)
+        (await this.resolveStyle()).setZIndex(zIndex)
 
         await this.scheduleRemount()
       },
@@ -128,11 +174,9 @@
         return (await this.resolveStyle()).getRenderer()
       },
       async setRenderer (renderer) {
-        const style = await this.resolveStyle()
+        if (renderer === await this.getRenderer()) return
 
-        if (renderer === style.getRenderer()) return
-
-        style.setRenderer(renderer)
+        (await this.resolveStyle()).setRenderer(renderer)
 
         await this.scheduleRemount()
       },
@@ -218,42 +262,6 @@
             await this.scheduleRemount()
           },
         }
-      },
-      /**
-       * @return {Promise<void>}
-       * @protected
-       */
-      async mount () {
-        if (this.$styleContainer) {
-          await this.$styleContainer.addStyle(this)
-        }
-
-        return this::style.methods.mount()
-      },
-      /**
-       * @return {Promise<void>}
-       * @protected
-       */
-      async unmount () {
-        if (this.$styleContainer) {
-          await this.$styleContainer.removeStyle(this)
-        }
-
-        return this::style.methods.unmount()
-      },
-      /**
-       * @returns {Object}
-       * @protected
-       */
-      getServices () {
-        return mergeDescriptors(
-          this::style.methods.getServices(),
-          this::fillStyleContainer.methods.getServices(),
-          this::strokeStyleContainer.methods.getServices(),
-          this::textStyleContainer.methods.getServices(),
-          this::imageStyleContainer.methods.getServices(),
-          this::geometryContainer.methods.getServices(),
-        )
       },
     },
   }

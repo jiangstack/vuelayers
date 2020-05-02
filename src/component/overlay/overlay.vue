@@ -79,7 +79,7 @@
     },
     positionDataProj () {
       if (this.rev && this.$overlay) {
-        return this.pointToDataProj(this.$overlay.getPosition())
+        return this.pointToDataProj(this.$overlay.getPosition(), 8)
       }
     },
     classes () {
@@ -99,7 +99,7 @@
       const overlay = new Overlay({
         id: this.id,
         offset: this.offset,
-        position: this.pointToViewProj(this.position),
+        position: this.pointToViewProj(this.position, 8),
         positioning: this.positioning,
         stopEvent: this.stopEvent,
         insertFirst: this.insertFirst,
@@ -127,7 +127,6 @@
         this.$overlay.setPosition(this.positionViewProj.slice())
         this.visible = true
       })
-      this.subscribeAll()
     },
     /**
      * @return {void}
@@ -136,7 +135,6 @@
     unmount () {
       hasOverlay(this)
 
-      this.unsubscribeAll()
       this.$overlay.setElement(undefined)
       this.$overlaysContainer && this.$overlaysContainer.removeOverlay(this.$overlay)
 
@@ -163,7 +161,7 @@
       }
     },
     position (value) {
-      value = this.pointToViewProj(value)
+      value = this.pointToViewProj(value, 8)
       if (this.$overlay && !isEqual(value, this.$overlay.getPosition())) {
         this.$overlay.setPosition(value)
       }
@@ -175,7 +173,7 @@
     },
     resolvedDataProjection () {
       if (this.$overlay) {
-        this.$overlay.setPosition(this.pointToViewProj(this.position))
+        this.$overlay.setPosition(this.pointToViewProj(this.position, 8))
       }
     },
   }
@@ -203,13 +201,13 @@
           enumerable: true,
           get: () => this.$olObject,
         },
-        $map: {
+        $mapVm: {
           enumerable: true,
-          get: () => this.$services && this.$services.map,
+          get: () => this.$services?.mapVm,
         },
-        $view: {
+        $viewVm: {
           enumerable: true,
-          get: () => this.$services && this.$services.view,
+          get: () => this.$services?.viewVm,
         },
         $overlaysContainer: {
           enumerable: true,
@@ -228,7 +226,7 @@
     hasOverlay(this)
 
     const changes = mergeObs(
-      obsFromOlChangeEvent(this.$overlay, 'position', true, undefined, () => this.pointToDataProj(this.$overlay.getPosition())),
+      obsFromOlChangeEvent(this.$overlay, 'position', true, () => this.pointToDataProj(this.$overlay.getPosition())),
       obsFromOlChangeEvent(this.$overlay, [
         'offset',
         'positioning',

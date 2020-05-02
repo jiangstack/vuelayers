@@ -1,11 +1,12 @@
 import Vue from 'vue'
 import IdentityMap from '../util/identity-map'
-import { identity, stubObject, keys } from '../util/minilo'
+import { hasProp, identity, keys, stubObject } from '../util/minilo'
 
-const INSTANCES_POOL = 'instances'
+// global prop
+export const IDENTITY_MAP_PROP = '$vlIdentityMap'
+export const INSTANCES_POOL = 'instances'
 
 export default {
-  INSTANCES_POOL,
   data () {
     return {
       idents: stubObject(),
@@ -13,6 +14,21 @@ export default {
   },
   beforeCreate () {
     initIdentityMap()
+    // define local getter
+    Object.defineProperties(this, {
+      $IDENTITY_MAP_PROP: {
+        enumerable: true,
+        get: () => IDENTITY_MAP_PROP,
+      },
+      $INSTANCES_POOL: {
+        enumerable: true,
+        get: () => INSTANCES_POOL,
+      },
+      $identityMap: {
+        enumerable: true,
+        get: () => this[IDENTITY_MAP_PROP],
+      },
+    })
   },
   destroyed () {
     this.unsetInstances()
@@ -105,20 +121,25 @@ export default {
 }
 
 function initIdentityMap () {
+  if (
+    hasProp(Vue, IDENTITY_MAP_PROP) ||
+    hasProp(Vue.prototype, IDENTITY_MAP_PROP)
+  ) return
+
   const imap = new IdentityMap()
 
-  if (!('$identityMap' in Vue)) {
+  if (!hasProp(Vue, IDENTITY_MAP_PROP)) {
     Object.defineProperties(Vue, {
-      $identityMap: {
+      [IDENTITY_MAP_PROP]: {
         enumerable: true,
         get: () => imap,
       },
     })
   }
 
-  if (!('$identityMap' in Vue.prototype)) {
+  if (!hasProp(Vue.prototype, IDENTITY_MAP_PROP)) {
     Object.defineProperties(Vue.prototype, {
-      $identityMap: {
+      [IDENTITY_MAP_PROP]: {
         enumerable: true,
         get: () => imap,
       },

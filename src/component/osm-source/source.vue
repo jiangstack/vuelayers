@@ -40,7 +40,7 @@
           opaque: this.opaque,
           transition: this.transition,
           // ol/source/UrlTile
-          tileLoadFunction: this.tileLoadFunction,
+          tileLoadFunction: this.tileLoadFunc,
           url: this.parsedUrl,
           // ol/source/TileImage
           crossOrigin: this.crossOrigin,

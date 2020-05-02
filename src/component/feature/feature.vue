@@ -5,21 +5,32 @@
     style="display: none !important;">
     <slot
       :id="id"
-      :properties="properties"
-      :geometry="geometry"
-      :point="point" />
+      :properties="properties">
+      <PointGeom :coordinates="[0, 0]" />
+    </slot>
   </i>
 </template>
 
 <script>
+  import debounce from 'debounce-promise'
   import { Feature } from 'ol'
-  import { merge as mergeObs, Observable } from 'rxjs'
-  import { distinctUntilChanged, map as mapObs, mergeAll } from 'rxjs/operators'
-  import { geometryContainer, olCmp, projTransforms, stylesContainer, waitForMap } from '../../mixin'
-  import { findPointOnSurface, getFeatureId, initializeFeature, setFeatureId } from '../../ol-ext'
-  import { obsFromOlEvent } from '../../rx-ext'
-  import { isEqual, stubObject } from '../../util/minilo'
+  import { merge as mergeObs } from 'rxjs'
+  import { map as mapObs, skipWhile } from 'rxjs/operators'
+  import { FRAME_TIME, geometryContainer, olCmp, projTransforms, styleContainer } from '../../mixin'
+  import {
+    cleanFeatureProperties,
+    getFeatureId,
+    getFeatureProperties,
+    initializeFeature,
+    setFeatureId,
+    setFeatureProperties,
+  } from '../../ol-ext'
+  import { obsFromOlEvent, obsFromVueEvent } from '../../rx-ext'
+  import { assert } from '../../util/assert'
+  import { clonePlainObject, hasProp, isEqual, isFunction, omit, stubObject } from '../../util/minilo'
   import mergeDescriptors from '../../util/multi-merge-descriptors'
+  import waitFor from '../../util/wait-for'
+  import PointGeom from './point-geom.vue'
 
   /**
    * A vector object for geographic features with a geometry and other attribute properties,
@@ -27,12 +38,14 @@
    */
   export default {
     name: 'VlFeature',
+    components: {
+      PointGeom,
+    },
     mixins: [
-      geometryContainer,
-      stylesContainer,
       projTransforms,
+      geometryContainer,
+      styleContainer,
       olCmp,
-      waitForMap,
     ],
     props: {
       properties: {
@@ -41,40 +54,30 @@
       },
     },
     computed: {
-      /**
-       * **GeoJSON** encoded geometry.
-       * @type {Object|undefined}
-       */
-      geometry () {
-        if (!(this.rev && this.resolvedDataProjection && this.$geometry)) return
+      currentProperties () {
+        if (this.rev && this.$feature) {
+          return omit(this.$feature.getProperties(), [
+            this.$feature.getGeometryName(),
+          ])
+        }
 
-        return this.writeGeometryInDataProj(this.$geometry)
-      },
-      /**
-       * @return {number[]|undefined}
-       */
-      point () {
-        if (!(this.pointViewProj && this.resolvedDataProjection)) return
-
-        return this.pointToDataProj(this.pointViewProj)
-      },
-      geometryViewProj () {
-        if (!(this.rev && this.resolvedDataProjection && this.$geometry)) return
-
-        return this.writeGeometryInViewProj(this.$geometry)
-      },
-      pointViewProj () {
-        if (!(this.rev && this.$geometry)) return
-
-        return findPointOnSurface(this.$geometry)
+        return this.properties
       },
     },
     watch: {
-      id (value) {
-        this.setId(value)
+      properties: {
+        deep: true,
+        async handler (value) {
+          await this.setProperties(value)
+        },
       },
-      properties (value) {
-        this.setProperties(value)
+      currentProperties: {
+        deep: true,
+        handler: debounce(function (value) {
+          if (isEqual(value, this.properties)) return
+
+          this.$emit('update:properties', clonePlainObject(value))
+        }, FRAME_TIME),
       },
     },
     created () {
@@ -82,100 +85,78 @@
     },
     methods: {
       /**
+       * @return {Promise<void>}
+       * @protected
+       */
+      async beforeInit () {
+        try {
+          await waitFor(
+            () => this.$mapVm != null,
+            obsFromVueEvent(this.$eventBus, [
+              this.$olObjectEventEnum.CREATE_ERROR,
+            ]).pipe(
+              mapObs(([vm]) => hasProp(vm, '$map') && this.$vq.closest(vm)),
+            ),
+            1000,
+          )
+
+          return this::olCmp.methods.beforeInit()
+        } catch (err) {
+          err.message = 'Wait for $mapVm injection: ' + err.message
+          throw err
+        }
+      },
+      /**
        * Create feature without inner style applying, feature level style
        * will be applied in the layer level style function.
        * @return {module:ol/Feature~Feature}
        * @protected
        */
       createOlObject () {
-        const feature = new Feature(this.properties)
-
-        initializeFeature(feature, this.id)
+        const feature = initializeFeature(this.createFeature(), this.id)
         feature.setGeometry(this.$geometry)
 
         return feature
       },
       /**
-       * @return {Promise<string|number>}
+       * @returns {Feature}
        */
-      async getId () {
-        return getFeatureId(await this.resolveFeature())
+      createFeature () {
+        return new Feature(this.properties)
       },
       /**
-       * @param {string|number} id
+       * @return {string[]}
+       */
+      triggerProps () {
+        return [
+          ...this::geometryContainer.methods.triggerProps(),
+          ...this::styleContainer.methods.triggerProps(),
+          ...this::olCmp.methods.triggerProps(),
+          'currentProperties',
+        ]
+      },
+      /**
        * @return {Promise<void>}
-       */
-      async setId (id) {
-        const feature = await this.resolveFeature()
-
-        if (id === getFeatureId(feature)) return
-
-        setFeatureId(feature, id)
-      },
-      /**
-       * @return {Promise<string>}
-       */
-      async getGeometryName () {
-        return (await this.resolveFeature()).getGeometryName()
-      },
-      /**
-       * @param {string} geometryName
-       * @return {Promise<void>}
-       */
-      async setGeometryName (geometryName) {
-        const feature = await this.resolveFeature()
-
-        if (geometryName === feature.getGeometryName()) return
-
-        feature.setGeometryName(geometryName)
-      },
-      /**
-       * @return {Promise<Object>}
-       */
-      async getProperties () {
-        return (await this.resolveFeature()).getProperties()
-      },
-      /**
-       * @param {Object} properties
-       * @return {Promise<void>}
-       */
-      async setProperties (properties) {
-        const feature = await this.resolveFeature()
-
-        if (isEqual(properties, feature.getProperties())) return
-
-        feature.setProperties(properties)
-      },
-      /**
-       * Checks if feature lies at `pixel`.
-       * @param {number[]} pixel
-       * @return {Promise<boolean>}
-       */
-      async isAtPixel (pixel) {
-        const selfFeature = await this.resolveFeature()
-        let layerFilter
-        if (this.$layerVm) {
-          const selfLayer = await this.$layerVm.resolveLayer()
-          layerFilter = layer => layer === selfLayer
-        }
-
-        return this.$mapVm.forEachFeatureAtPixel(pixel, feature => feature === selfFeature, { layerFilter })
-      },
-      /**
-       * @return {Object}
        * @protected
        */
-      getServices () {
-        const vm = this
+      async beforeMount () {
+        try {
+          await waitFor(
+            () => this.$geometryVm != null,
+            obsFromVueEvent(this.$eventBus, [
+              this.$olObjectEventEnum.CREATE_ERROR,
+              this.$olObjectEventEnum.MOUNT_ERROR,
+            ]).pipe(
+              mapObs(([vm]) => hasProp(vm, '$geometry') && this.$vq.find(vm).length),
+            ),
+            1000,
+          )
 
-        return mergeDescriptors(
-          this::olCmp.methods.getServices(),
-          this::geometryContainer.methods.getServices(),
-          this::stylesContainer.methods.getServices(),
-          {
-            get featureVm () { return vm },
-          },
-        )
+          return this::olCmp.methods.beforeMount()
+        } catch (err) {
+          err.message = 'Wait for $geometry failed: ' + err.message
+          throw err
+        }
       },
       /**
        * @return {Promise<void>}
@@ -203,15 +184,107 @@
        * @return {void}
        * @protected
        */
-      async subscribeAll () {
-        await Promise.all([
-          this::olCmp.methods.subscribeAll(),
-          this::subscribeToEvents(),
-        ])
+      subscribeAll () {
+        this::olCmp.methods.subscribeAll()
+        this::subscribeToEvents()
+      },
+      /**
+       * @return {Object}
+       * @protected
+       */
+      getServices () {
+        const vm = this
+
+        return mergeDescriptors(
+          this::olCmp.methods.getServices(),
+          this::geometryContainer.methods.getServices(),
+          this::styleContainer.methods.getServices(),
+          {
+            get featureVm () { return vm },
+          },
+        )
       },
       resolveFeature: olCmp.methods.resolveOlObject,
       getGeometryTarget: olCmp.methods.resolveOlObject,
       getStyleTarget: olCmp.methods.resolveOlObject,
+      /**
+       * @return {Promise<string|number>}
+       */
+      async getId () {
+        return getFeatureId(await this.resolveFeature())
+      },
+      /**
+       * @param {string|number} id
+       * @return {Promise<void>}
+       */
+      async setId (id) {
+        assert(!!id, 'Invalid feature id')
+
+        if (id === await this.getId()) return
+
+        setFeatureId(await this.resolveFeature(), id)
+      },
+      /**
+       * @return {Promise<string>}
+       */
+      async getGeometryName () {
+        return (await this.resolveFeature()).getGeometryName()
+      },
+      /**
+       * @param {string} geometryName
+       * @return {Promise<void>}
+       */
+      async setGeometryName (geometryName) {
+        if (geometryName === await this.getGeometryName()) return
+
+        (await this.resolveFeature()).setGeometryName(geometryName)
+      },
+      /**
+       * @return {Promise<Object>}
+       */
+      async getProperties () {
+        return getFeatureProperties(await this.resolveFeature())
+      },
+      /**
+       * @param {Object} properties
+       * @return {Promise<void>}
+       */
+      async setProperties (properties) {
+        if (isEqual(cleanFeatureProperties(properties), await this.getProperties())) return
+
+        setFeatureProperties(await this.resolveFeature(), properties)
+      },
+      /**
+       * Checks if feature lies at `pixel`.
+       * @param {number[]} pixel
+       * @return {Promise<boolean>}
+       */
+      async isAtPixel (pixel) {
+        const selfFeature = await this.resolveFeature()
+        let layerFilter
+        if (this.$layerVm) {
+          const selfLayer = await this.$layerVm.resolveLayer()
+          layerFilter = layer => layer === selfLayer
+        }
+
+        return this.$mapVm.forEachFeatureAtPixel(pixel, feature => feature === selfFeature, { layerFilter })
+      },
+      /**
+       * @param {FeatureLike} feature
+       * @return {Promise<void>}
+       * @protected
+       */
+      async mergeWith (feature) {
+        if (!feature) return
+        if (isFunction(feature.resolveOlObject)) {
+          feature = await feature.resolveOlObject()
+        }
+        if (feature === await this.resolveFeature()) return
+
+        await this.setProperties({ ...feature.getProperties() })
+        await this.mergeGeometryWith(feature.getGeometry())
+        await this.mergeStyleWith(feature.getStyle())
+      },
     },
   }
 
@@ -220,10 +293,6 @@
       $feature: {
         enumerable: true,
         get: () => this.$olObject,
-      },
-      $geometry: {
-        enumerable: true,
-        get: () => this.$feature?.getGeometry(),
       },
       $layerVm: {
         enumerable: true,
@@ -241,43 +310,38 @@
   }
 
   async function subscribeToEvents () {
-    const feature = await this.resolveFeature()
-
-    const getPropValue = prop => feature.get(prop)
-    // all plain properties + geometry
     const propChanges = obsFromOlEvent(
-      feature,
+      this.$feature,
       'propertychange',
-      ({ key }) => ({ prop: key, value: getPropValue(key) }),
-    )
-    // id, style and other generic changes
-    const changes = obsFromOlEvent(
-      feature,
-      'change',
+      ({ key }) => {
+        switch (key) {
+          case this.$feature.getGeometryName():
+            return {
+              prop: 'geometry',
+              value: this.getGeometry() && this.writeGeometryInDataProj(this.getGeometry()),
+              compareWith: this.geometryDataProj,
+            }
+          default:
+            return {
+              prop: 'properties',
+              value: {
+                ...this.properties,
+                [key]: this.$feature.get(key),
+              },
+              compareWith: this.currentProperties,
+            }
+        }
+      },
     ).pipe(
-      mapObs(() => Observable.create(obs => {
-        if (feature.getId() !== this.id) {
-          obs.next({ prop: 'id', value: feature.getId() })
-        }
-        // todo style?
-      })),
-      mergeAll(),
+      skipWhile(({ value, compareWith }) => isEqual(value, compareWith)),
     )
-    // all changes
-    const allChanges = mergeObs(propChanges, changes).pipe(
-      distinctUntilChanged(isEqual),
+    const changes = obsFromOlEvent(this.$feature, 'change')
+    const events = mergeObs(
+      propChanges,
+      changes,
     )
-
-    this.subscribeTo(allChanges, ({ prop, value }) => {
+    this.subscribeTo(events, () => {
       ++this.rev
-
-      this.$nextTick(() => {
-        if (prop === 'id') {
-          this.$emit(`update:${prop}`, value)
-        } else if (prop !== feature.getGeometryName()) {
-          this.$emit('update:properties', { ...this.properties, [prop]: value })
-        }
-      })
     })
   }
 </script>

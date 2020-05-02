@@ -1,3 +1,4 @@
+import { obsFromOlEvent } from '../rx-ext'
 import { isFunction, pick } from '../util/minilo'
 import mergeDescriptors from '../util/multi-merge-descriptors'
 import { makeWatchers } from '../util/vue-helpers'
@@ -42,28 +43,6 @@ export default {
   },
   methods: {
     /**
-     * @returns {Promise<module:ol/renderer/Layer~LayerRenderer>}
-     */
-    async getRenderer () {
-      return (await this.resolveLayer()).getRenderer()
-    },
-    /**
-     * @param {module:ol/Map~Map|Object|undefined} map
-     * @return {Promise<void>}
-     */
-    async setMap (map) {
-      if (isFunction(map.resolveOlObject)) {
-        map = await map.resolveOlObject()
-      }
-
-      (await this.resolveLayer()).setMap(map)
-    },
-    /**
-     * @return {Promise<module:ol/layer/Base~BaseLayer>}
-     * @protected
-     */
-    getSourceTarget: baseLayer.methods.resolveOlObject,
-    /**
      * @return {Promise<void>}
      * @protected
      */
@@ -99,18 +78,60 @@ export default {
         this::sourceContainer.methods.getServices(),
       )
     },
+    /**
+     * @return {void}
+     * @protected
+     */
+    subscribeAll () {
+      this::baseLayer.methods.subscribeAll()
+      this::subscribeToLayerEvents()
+    },
     ...pick(baseLayer.methods, [
+      'triggerProps',
+      'beforeInit',
       'init',
       'deinit',
+      'beforeMount',
       'refresh',
       'scheduleRefresh',
       'remount',
       'scheduleRemount',
       'recreate',
       'scheduleRecreate',
-      'subscribeAll',
       'resolveOlObject',
       'resolveLayer',
     ]),
+    /**
+     * @return {Promise<module:ol/layer/Base~BaseLayer>}
+     * @protected
+     */
+    getSourceTarget: baseLayer.methods.resolveOlObject,
+    /**
+     * @returns {Promise<module:ol/renderer/Layer~LayerRenderer>}
+     */
+    async getRenderer () {
+      return (await this.resolveLayer()).getRenderer()
+    },
+    /**
+     * @param {module:ol/Map~Map|Object|undefined} map
+     * @return {Promise<void>}
+     */
+    async setMap (map) {
+      if (map && isFunction(map.resolveOlObject)) {
+        map = await map.resolveOlObject()
+      }
+
+      (await this.resolveLayer()).setMap(map)
+    },
   },
+}
+
+async function subscribeToLayerEvents () {
+  const renderEvents = obsFromOlEvent(this.$layer, [
+    'postrender',
+    'prerender',
+  ])
+  this.subscribeTo(renderEvents, evt => {
+    this.$emit(evt.type, evt)
+  })
 }

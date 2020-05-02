@@ -1,6 +1,5 @@
 import * as ArcgisRestSource from './component/arcgis-rest-source'
 import * as BingmapsSource from './component/bingmaps-source'
-import * as CircleGeom from './component/circle-geom'
 import * as ClusterSource from './component/cluster-source'
 import * as DrawInteraction from './component/draw-interaction'
 import * as Feature from './component/feature'
@@ -11,17 +10,11 @@ import * as HeatmapLayer from './component/heatmap-layer'
 import * as ImageLayer from './component/image-layer'
 import * as ImageStaticSource from './component/image-static-source'
 import * as ImageWmsSource from './component/image-wms-source'
-import * as LineStringGeom from './component/line-string-geom'
 import * as Map from './component/map'
 import * as MapboxSource from './component/mapbox-source'
 import * as ModifyInteraction from './component/modify-interaction'
-import * as MultiLineStringGeom from './component/multi-line-string-geom'
-import * as MultiPointGeom from './component/multi-point-geom'
-import * as MultiPolygonGeom from './component/multi-polygon-geom'
 import * as OsmSource from './component/osm-source'
 import * as Overlay from './component/overlay'
-import * as PointGeom from './component/point-geom'
-import * as PolygonGeom from './component/polygon-geom'
 import * as SelectInteraction from './component/select-interaction'
 import * as SnapInteraction from './component/snap-interaction'
 import * as SputnikSource from './component/sputnik-source'
@@ -58,7 +51,6 @@ function plugin (Vue, options = {}) {
   // install components
   Vue.use(ArcgisRestSource, options)
   Vue.use(BingmapsSource, options)
-  Vue.use(CircleGeom, options)
   Vue.use(ClusterSource, options)
   Vue.use(DrawInteraction, options)
   Vue.use(Feature, options)
@@ -69,17 +61,11 @@ function plugin (Vue, options = {}) {
   Vue.use(ImageLayer, options)
   Vue.use(ImageStaticSource, options)
   Vue.use(ImageWmsSource, options)
-  Vue.use(LineStringGeom, options)
   Vue.use(Map, options)
   Vue.use(MapboxSource, options)
   Vue.use(ModifyInteraction, options)
-  Vue.use(MultiLineStringGeom, options)
-  Vue.use(MultiPointGeom, options)
-  Vue.use(MultiPolygonGeom, options)
   Vue.use(OsmSource, options)
   Vue.use(Overlay, options)
-  Vue.use(PointGeom, options)
-  Vue.use(PolygonGeom, options)
   Vue.use(SelectInteraction, options)
   Vue.use(SnapInteraction, options)
   Vue.use(SputnikSource, options)
@@ -105,7 +91,6 @@ export {
   // components
   ArcgisRestSource,
   BingmapsSource,
-  CircleGeom,
   ClusterSource,
   DrawInteraction,
   Feature,
@@ -116,17 +101,11 @@ export {
   ImageLayer,
   ImageStaticSource,
   ImageWmsSource,
-  LineStringGeom,
   Map,
   MapboxSource,
   ModifyInteraction,
-  MultiLineStringGeom,
-  MultiPointGeom,
-  MultiPolygonGeom,
   OsmSource,
   Overlay,
-  PointGeom,
-  PolygonGeom,
   SelectInteraction,
   SnapInteraction,
   SputnikSource,

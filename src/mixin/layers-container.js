@@ -1,6 +1,7 @@
 import { Collection } from 'ol'
 import BaseLayer from 'ol/layer/Base'
-import { merge as mergeObs } from 'rxjs'
+import { merge as mergeObs, from as fromObs } from 'rxjs'
+import { switchMap, map as mapObs } from 'rxjs/operators'
 import { getLayerId, initializeLayer } from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
@@ -61,15 +62,37 @@ export default {
   },
   methods: {
     /**
+     * @return {string[]}
+     */
+    triggerProps () {
+      return [
+        'layerIds',
+      ]
+    },
+    /**
+     * @returns {{readonly layersContainer: Object}}
+     * @protected
+     */
+    getServices () {
+      const vm = this
+
+      return {
+        get layersContainer () { return vm },
+      }
+    },
+    async initializeLayer (layer) {
+      if (isFunction(layer.resolveOlObject)) {
+        layer = await layer.resolveOlObject()
+      }
+
+      return initializeLayer(layer)
+    },
+    /**
      * @param {LayerLike} layer
      * @return {Promise<void>}
      */
     async addLayer (layer) {
-      initializeLayer(layer)
-
-      if (isFunction(layer.resolveOlObject)) {
-        layer = await layer.resolveOlObject()
-      }
+      layer = await this.initializeLayer(layer)
 
       instanceOf(layer, BaseLayer)
 
@@ -132,17 +155,6 @@ export default {
     clearLayers () {
       this.$layersCollection.clear()
     },
-    /**
-     * @returns {{readonly layersContainer: Object}}
-     * @protected
-     */
-    getServices () {
-      const vm = this
-
-      return {
-        get layersContainer () { return vm },
-      }
-    },
   },
 }
 
@@ -156,7 +168,11 @@ function defineServices () {
 }
 
 function subscribeToCollectionEvents () {
-  const adds = obsFromOlEvent(this.$layersCollection, 'add')
+  const adds = obsFromOlEvent(this.$layersCollection, 'add').pipe(
+    switchMap(({ type, element }) => fromObs(this.initializeLayer(element)).pipe(
+      mapObs(element => ({ type, element })),
+    )),
+  )
   const removes = obsFromOlEvent(this.$layersCollection, 'remove')
 
   this.subscribeTo(mergeObs(adds, removes), ({ type, element }) => {

@@ -1,4 +1,6 @@
 import { fromEventPattern, merge as mergeObs } from 'rxjs'
+import { map as mapObs } from 'rxjs/operators'
+import { identity } from '../util/minilo'
 
 export default function fromVueEvent (target, eventName, selector) {
   if (Array.isArray(eventName)) {
@@ -20,9 +22,10 @@ export default function fromVueEvent (target, eventName, selector) {
     )
   }
 
+  selector || (selector = identity)
+
   return fromEventPattern(
     handler => target.$on(eventName, handler),
     handler => target.$off(eventName, handler),
-    selector,
-  )
+  ).pipe(mapObs(selector))
 }
