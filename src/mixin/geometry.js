@@ -1,22 +1,11 @@
-import debounce from 'debounce-promise'
-import { boundingExtent } from 'ol/extent'
 import { merge as mergeObs } from 'rxjs'
 import { map as mapObs, skipWhile } from 'rxjs/operators'
-import {
-  findPointOnSurface,
-  flatCoords,
-  getGeometryId,
-  initializeGeometry,
-  roundCoords,
-  setGeometryId,
-  transformPoint,
-  transforms,
-} from '../ol-ext'
+import { getGeometryId, initializeGeometry, roundExtent, setGeometryId } from '../ol-ext'
 import { obsFromOlChangeEvent, obsFromOlEvent, obsFromVueEvent } from '../rx-ext'
-import { addPrefix, clonePlainObject, hasProp, isEqual, pick } from '../util/minilo'
+import { addPrefix, hasProp, isEqual, pick } from '../util/minilo'
 import mergeDescriptors from '../util/multi-merge-descriptors'
 import waitFor from '../util/wait-for'
-import olCmp, { FRAME_TIME } from './ol-cmp'
+import olCmp from './ol-cmp'
 import projTransforms from './proj-transforms'
 import stubVNode from './stub-vnode'
 
@@ -40,46 +29,15 @@ export default {
 
       return this.$geometry.getType()
     },
-    coordinatesDataProj () {
-      if (!(this.rev && this.$geometry)) return []
+    currentExtentDataProj () {
+      if (!(this.rev && this.$geometry)) return
 
-      return this.coordinatesToDataProj(this.$geometry.getCoordinates())
+      return this.getExtentSync()
     },
-    coordinatesViewProj () {
-      if (!(this.rev && this.$geometry)) return []
+    currentExtentViewProj () {
+      if (!(this.rev && this.$geometry)) return
 
-      return roundCoords(this.$geometry.getCoordinates())
-    },
-    extentDataProj () {
-      if (!this.type) return
-
-      return boundingExtent(flatCoords(this.type, this.coordinatesDataProj))
-    },
-    extentViewProj () {
-      if (!this.type) return
-
-      return boundingExtent(flatCoords(this.type, this.coordinatesViewProj))
-    },
-    pointDataProj () {
-      if (!this.type) return
-
-      return findPointOnSurface({
-        type: this.type,
-        coordinates: this.coordinatesDataProj,
-      })
-    },
-    pointViewProj () {
-      if (!this.pointDataProj) return
-
-      return transformPoint(this.pointDataProj, this.resolvedDataProjection, this.viewProjection)
-    },
-  },
-  watch: {
-    coordinatesDataProj: {
-      deep: true,
-      handler: debounce(async function (value, prev) {
-        await this.onCoordinatesChanged(value, prev)
-      }, FRAME_TIME),
+      return this.getExtentSync(null, true)
     },
   },
   created () {
@@ -130,8 +88,8 @@ export default {
       return [
         ...this::olCmp.methods.triggerProps(),
         'type',
-        'coordinatesDataProj',
-        'coordinatesViewProj',
+        'currentExtentDataProj',
+        'currentExtentViewProj',
       ]
     },
     /**
@@ -219,9 +177,18 @@ export default {
      * @returns {Promise<number[]>}
      */
     async getExtent (extent) {
-      extent = extent != null ? this.extentToViewProj(extent) : undefined
+      await this.resolveGeometry()
 
-      return this.extentToDataProj((await this.resolveGeometry()).getExtent(extent))
+      return this.getExtentSync(extent)
+    },
+    getExtentSync (extent, viewProj = false) {
+      if (viewProj) {
+        return roundExtent(this.$geometry.getExtent(extent))
+      }
+
+      extent = extent != null ? this.extentToViewProj(extent) : null
+
+      return this.extentToDataProj(this.$geometry.getExtent(extent))
     },
     /**
      * @param {number[]} point
@@ -279,35 +246,6 @@ export default {
      */
     async translate (dx, dy) {
       return (await this.resolveGeometry()).translate(dx, dy)
-    },
-    /**
-     * @returns {function}
-     */
-    getCoordinatesTransformFunction () {
-      return transforms[this.type].transform
-    },
-    /**
-     * @param {number[]} coordinates
-     * @returns {Promise<number[]>}
-     */
-    coordinatesToDataProj (coordinates) {
-      const transform = this.getCoordinatesTransformFunction()
-
-      return transform(coordinates, this.viewProjection, this.resolvedDataProjection)
-    },
-    /**
-     * @param {number[]} coordinates
-     * @returns {Promise<number[]>}
-     */
-    coordinatesToViewProj (coordinates) {
-      const transform = this.getCoordinatesTransformFunction()
-
-      return transform(coordinates, this.resolvedDataProjection, this.viewProjection)
-    },
-    onCoordinatesChanged (coordinates, prevCoordinates) {
-      if (isEqual(coordinates, prevCoordinates)) return
-
-      this.$emit('update:coordinates', clonePlainObject(coordinates))
     },
   },
 }

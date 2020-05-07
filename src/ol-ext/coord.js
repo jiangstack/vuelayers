@@ -1,7 +1,7 @@
 import GeometryType from 'ol/geom/GeometryType'
 import { isEqual, round } from '../util/minilo'
 
-export const COORD_PRECISION = 6
+export const COORD_PRECISION = -1
 
 export function roundExtent (extent, precision = COORD_PRECISION) {
   return extent.map(x => round(x, precision))
@@ -56,4 +56,12 @@ export function isEqualCoord (a, b) {
   return isEqual(a.extent, b.extent)
     ? isEqual(a.coordinates, b.coordinates)
     : false
+}
+
+export function calcDistance (point1, point2, precision = COORD_PRECISION) {
+  const dx = point2[0] - point1[0]
+  const dy = point2[1] - point1[1]
+  const squared = dx * dx + dy * dy
+
+  return round(Math.sqrt(squared), COORD_PRECISION)
 }

@@ -1,7 +1,7 @@
 import { Collection } from 'ol'
 import { Control, defaults as createDefaultControls } from 'ol/control'
-import { merge as mergeObs, from as fromObs } from 'rxjs'
-import { switchMap, map as mapObs } from 'rxjs/operators'
+import { from as fromObs, merge as mergeObs } from 'rxjs'
+import { map as mapObs, mergeMap } from 'rxjs/operators'
 import { getControlId, initializeControl } from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
@@ -190,7 +190,7 @@ function defineServices () {
 
 function subscribeToCollectionEvents () {
   const adds = obsFromOlEvent(this.$controlsCollection, 'add').pipe(
-    switchMap(({ type, element }) => fromObs(this.initializeControl(element)).pipe(
+    mergeMap(({ type, element }) => fromObs(this.initializeControl(element)).pipe(
       mapObs(element => ({ type, element })),
     )),
   )
@@ -201,6 +201,8 @@ function subscribeToCollectionEvents () {
 
     this.$nextTick(() => {
       this.$emit(type + 'control', element)
+      // todo remove in v0.13.x
+      this.$emit(type + ':control', element)
     })
   })
 }

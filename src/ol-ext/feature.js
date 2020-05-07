@@ -1,6 +1,7 @@
 import { Feature } from 'ol'
 import { v4 as uuid } from 'uuid'
 import { isPlainObject, omit } from '../util/minilo'
+import { CIRCLE_SERIALIZE_PROP, STYLE_SERIALIZE_PROP } from './format'
 
 /**
  * @param {Object|module:ol/Feature~Feature|string|number} feature
@@ -56,23 +57,27 @@ export function getFeatureGeometryName (feature) {
   return 'geometry'
 }
 
-export function cleanFeatureProperties (properties, geometryName = '') {
-  return omit(properties, [geometryName])
-}
-
 export function getFeatureProperties (feature) {
   if (!feature) return
 
-  return cleanFeatureProperties(
-    feature.properties || feature.getProperties(),
-    getFeatureGeometryName(feature),
+  return omit(
+    feature instanceof Feature ? feature.getProperties() : feature.properties,
+    [
+      getFeatureGeometryName(feature),
+      CIRCLE_SERIALIZE_PROP,
+      STYLE_SERIALIZE_PROP,
+    ],
   )
 }
 
 export function setFeatureProperties (feature, properties) {
   if (!feature) return
 
-  properties = cleanFeatureProperties(properties, getFeatureGeometryName(feature))
+  properties = omit(properties, [
+    getFeatureGeometryName(feature),
+    CIRCLE_SERIALIZE_PROP,
+    STYLE_SERIALIZE_PROP,
+  ])
 
   if (feature instanceof Feature) {
     feature.setProperties(properties)

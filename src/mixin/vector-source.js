@@ -1,6 +1,6 @@
 import { Feature } from 'ol'
 import { all as loadAll } from 'ol/loadingstrategy'
-import { getFeatureId, getGeoJsonFmt, isGeoJSONFeature, transform } from '../ol-ext'
+import { getFeatureId, getGeoJsonFmt, initializeFeature, isGeoJSONFeature, transform } from '../ol-ext'
 import {
   and,
   clonePlainObject,
@@ -112,12 +112,15 @@ export default {
   data () {
     return {
       /**
-       * @returns {module:ol/format/Feature~FeatureFormat|undefined}
+       * @returns {module:ol/format/Feature~FeatureFormat|null}
        */
-      format: undefined,
+      format: null,
     }
   },
   computed: {
+    inputFeatures () {
+      return this.features.map(f => initializeFeature(clonePlainObject(f)))
+    },
     /**
      * @returns {function|undefined}
      */
@@ -162,18 +165,19 @@ export default {
     },
   },
   watch: {
-    features: {
+    inputFeatures: {
       deep: true,
       async handler (features) {
-        if (!this.$source || isEqual(features, this.featuresDataProj)) return
+        if (isEqual(features, this.featuresDataProj)) return
         // add new features
-        await Promise.all(features.map(feature => this.addFeature(clonePlainObject(feature))))
+        await this.addFeatures(features)
         // remove non-matched features
-        await Promise.all(difference(
-          this.getFeatures(),
+        const removed = difference(
+          this.featuresDataProj,
           features,
           (a, b) => getFeatureId(a) === getFeatureId(b),
-        ).map(::this.removeFeature))
+        )
+        await this.removeFeatures(removed)
       },
     },
     async urlFunc (value) {
@@ -258,7 +262,7 @@ export default {
      */
     async init () {
       await this::source.methods.init()
-      await this.addFeatures(this.features)
+      await this.addFeatures(this.inputFeatures)
     },
     /**
      * @return {string[]}
@@ -296,7 +300,7 @@ export default {
       'resolveSource',
     ]),
     onFeaturesChanged (features) {
-      if (isEqual(features, this.features)) return
+      if (isEqual(features, this.inputFeatures)) return
 
       this.$emit('update:features', clonePlainObject(features))
     },

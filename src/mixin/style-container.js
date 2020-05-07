@@ -33,7 +33,7 @@ export default {
 
       isArray(style) || (style = [style])
 
-      return style.map(style => dumpStyle(style, ::this.writeGeometryInDataProj))
+      return style.map(style => dumpStyle(style, geom => this.writeGeometryInDataProj(geom)))
     },
   },
   watch: {
@@ -184,6 +184,7 @@ export default {
           style = this.createStyleFunc(style, this.getDefaultStyle())
         } else {
           isArray(style) || (style = [style])
+          style.length > 0 || (style = null)
         }
       } else {
         style = null

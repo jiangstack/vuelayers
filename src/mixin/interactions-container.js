@@ -1,7 +1,7 @@
 import { Collection } from 'ol'
 import { defaults as createDefaultInteractions, Interaction } from 'ol/interaction'
 import { from as fromObs, merge as mergeObs } from 'rxjs'
-import { switchMap, map as mapObs } from 'rxjs/operators'
+import { map as mapObs, mergeMap } from 'rxjs/operators'
 import { getInteractionId, getInteractionPriority, initializeInteraction } from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
@@ -217,7 +217,7 @@ function defineServices () {
 
 function subscribeToCollectionEvents () {
   const adds = obsFromOlEvent(this.$interactionsCollection, 'add').pipe(
-    switchMap(({ type, element }) => fromObs(this.initializeInteraction(element)).pipe(
+    mergeMap(({ type, element }) => fromObs(this.initializeInteraction(element)).pipe(
       mapObs(element => ({ type, element })),
     )),
   )
@@ -228,6 +228,8 @@ function subscribeToCollectionEvents () {
 
     this.$nextTick(() => {
       this.$emit(type + 'interaction', element)
+      // todo remove in v0.13.x
+      this.$emit(type + ':interaction', element)
     })
   })
 }

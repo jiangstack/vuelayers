@@ -1,6 +1,6 @@
 import debounce from 'debounce-promise'
 import { concat as concatObs, from as fromObs, race as raceObs, throwError as throwErrorObs } from 'rxjs'
-import { first as firstObs, switchMap as switchMapObs } from 'rxjs/operators'
+import { first as firstObs, mergeMap } from 'rxjs/operators'
 import { v4 as uuid } from 'uuid'
 import vq from 'vuequery'
 import { obsFromVueEvent } from '../rx-ext'
@@ -201,14 +201,6 @@ export default {
       }
     },
     /**
-     * Redefine for easy call in child components
-     * @returns {Object}
-     * @protected
-     */
-    getServices () {
-      return this::services.methods.getServices()
-    },
-    /**
      * @return {Promise<void>}
      * @protected
      */
@@ -339,6 +331,14 @@ export default {
       }
     },
     /**
+     * Redefine for easy call in child components
+     * @returns {Object}
+     * @protected
+     */
+    getServices () {
+      return this::services.methods.getServices()
+    },
+    /**
      * @return {void}
      */
     subscribeAll () {},
@@ -439,7 +439,7 @@ function defineServices () {
         return raceObs(
           obsFromVueEvent(this, [olObjectEvent.CREATED]),
           obsFromVueEvent(this, [olObjectEvent.CREATE_ERROR]).pipe(
-            switchMapObs(([_, err]) => throwErrorObs(err)),
+            mergeMap(([_, err]) => throwErrorObs(err)),
           ),
         ).pipe(firstObs())
           .toPromise(Promise)
@@ -461,7 +461,7 @@ function defineServices () {
             olObjectEvent.CREATE_ERROR,
             olObjectEvent.MOUNT_ERROR,
           ]).pipe(
-            switchMapObs(([_, err]) => throwErrorObs(err)),
+            mergeMap(([_, err]) => throwErrorObs(err)),
           ),
         ).pipe(firstObs())
           .toPromise(Promise)
@@ -482,7 +482,7 @@ function defineServices () {
               olObjectEvent.MOUNT_ERROR,
               olObjectEvent.UNMOUNT_ERROR,
             ]).pipe(
-              switchMapObs(([_, err]) => throwErrorObs(err)),
+              mergeMap(([_, err]) => throwErrorObs(err)),
             ),
           ).pipe(firstObs()),
         ).toPromise(Promise)
@@ -504,7 +504,7 @@ function defineServices () {
               olObjectEvent.UNMOUNT_ERROR,
               olObjectEvent.DESTROY_ERROR,
             ]).pipe(
-              switchMapObs(([_, err]) => throwErrorObs(err)),
+              mergeMap(([_, err]) => throwErrorObs(err)),
             ),
           ).pipe(firstObs()),
         ).toPromise(Promise)
@@ -611,7 +611,7 @@ async function execMount () {
 
 /**
  * @return {void|Promise<void>}
- * @protected
+ * @private
  */
 async function execUnmount () {
   try {

@@ -17,7 +17,7 @@
   import GeometryType from 'ol/geom/GeometryType'
   import { get as getProj } from 'ol/proj'
   import { from as fromObs, merge as mergeObs } from 'rxjs'
-  import { distinctUntilKeyChanged, map as mapObs, skipWhile, switchMap } from 'rxjs/operators'
+  import { distinctUntilKeyChanged, map as mapObs, mergeMap, skipWhile } from 'rxjs/operators'
   import { FRAME_TIME, olCmp, projTransforms } from '../../mixin'
   import { EPSG_3857, getViewId, initializeView, roundCoords, roundExtent, setViewId } from '../../ol-ext'
   import { obsFromOlChangeEvent, obsFromOlEvent, obsFromVueEvent } from '../../rx-ext'
@@ -721,7 +721,7 @@
       compareWith: this.currentResolution,
     }))
     const zoomChanges = resolutionChanges.pipe(
-      switchMap(() => fromObs(this.getZoom()).pipe(
+      mergeMap(() => fromObs(this.getZoom()).pipe(
         mapObs(zoom => ({
           prop: 'zoom',
           value: zoom,
@@ -731,7 +731,7 @@
       distinctUntilKeyChanged('value'),
     )
     const centerChanges = obsFromOlChangeEvent(this.$view, 'center', true).pipe(
-      switchMap(({ prop }) => fromObs(this.getCenter()).pipe(
+      mergeMap(({ prop }) => fromObs(this.getCenter()).pipe(
         mapObs(center => ({
           prop,
           value: center,

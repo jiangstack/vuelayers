@@ -63,14 +63,14 @@
     computed: {
       meridians () {
         if (this.$graticule && this.rev) {
-          return map(this.getMeridians(), meridian => this.lineToDataProj(meridian.getCoordinates(), 8))
+          return map(this.getMeridians(), meridian => this.lineToDataProj(meridian.getCoordinates()))
         }
 
         return []
       },
       parallels () {
         if (this.$graticule && this.rev) {
-          return map(this.getParallels(), parallel => this.lineToDataProj(parallel.getCoordinates(), 8))
+          return map(this.getParallels(), parallel => this.lineToDataProj(parallel.getCoordinates()))
         }
 
         return []

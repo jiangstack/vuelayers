@@ -3,8 +3,13 @@
   import { boundingExtent } from 'ol/extent'
   import { Circle } from 'ol/geom'
   import GeometryType from 'ol/geom/GeometryType'
-  import { simpleGeometry, FRAME_TIME } from '../../mixin'
-  import { COORD_PRECISION, EPSG_3857, roundCoords, transformExtent, transformPoint } from '../../ol-ext'
+  import { FRAME_TIME, simpleGeometry } from '../../mixin'
+  import {
+    COORD_PRECISION,
+    roundCoords, transformDistance,
+    transformExtent,
+    transformPoint,
+  } from '../../ol-ext'
   import { constant, isEqual, round } from '../../util/minilo'
 
   export default {
@@ -26,111 +31,160 @@
         type: Number,
         default: 0,
       },
+      /**
+       * Projection in which radius provided.
+       * Default: map data projection
+       * @type {string}
+       */
+      radiusProjection: String,
     },
     computed: {
       type: constant(GeometryType.CIRCLE),
-      roundRadius () {
+      resolvedRadiusProjection () {
+        return this.radiusProjection || this.resolvedDataProjection
+      },
+      radiusDataProj () {
         return round(this.radius, COORD_PRECISION)
       },
-      center_3857 () {
-        return transformPoint(this.coordinatesDataProj, this.resolvedDataProjection, EPSG_3857)
+      radiusViewProj () {
+        return this.radiusToViewProj(this.radius, this.coordinatesDataProj)
       },
       extentDataProj () {
+        const center = transformPoint(this.coordinatesDataProj, this.resolvedDataProjection, this.resolvedRadiusProjection)
+
         return transformExtent(boundingExtent([
-          [this.center_3857[0] - this.roundRadius, this.center_3857[1] - this.roundRadius],
-          [this.center_3857[0] + this.roundRadius, this.center_3857[1] + this.roundRadius],
-        ]), EPSG_3857, this.resolvedDataProjection)
+          [center[0] - this.radiusDataProj, center[1] - this.radiusDataProj],
+          [center[0] + this.radiusDataProj, center[1] + this.radiusDataProj],
+        ]), this.resolvedRadiusProjection, this.resolvedDataProjection)
       },
-      extentViewProj () {
-        return this.extentToViewProj(this.extentDataProj)
-      },
-      currentCoordinatesViewProj () {
-        if (!this.type) return []
+      currentRadiusDataProj () {
         if (this.rev && this.$geometry) {
-          return roundCoords(this.type, this.$geometry.getCenter())
+          return this.getRadiusSync()
         }
 
-        return this.coordinatesViewProj
+        return this.radiusDataProj
       },
-      currentRadius () {
+      currentRadiusViewProj () {
         if (this.rev && this.$geometry) {
-          return round(this.$geometry.getRadius(), COORD_PRECISION)
+          return this.getRadiusSync(true)
         }
 
-        return this.roundRadius
-      },
-      currentCenter_3857 () {
-        return transformPoint(this.currentCoordinatesDataProj, this.resolvedDataProjection, EPSG_3857)
+        return this.radiusViewProj
       },
       currentExtentDataProj () {
+        const center = transformPoint(this.currentCoordinatesDataProj, this.resolvedDataProjection, this.resolvedRadiusProjection)
+
         return transformExtent(boundingExtent([
-          [this.currentCenter_3857[0] - this.currentRadius, this.currentCenter_3857[1] - this.currentRadius],
-          [this.currentCenter_3857[0] + this.currentRadius, this.currentCenter_3857[1] + this.currentRadius],
-        ]), EPSG_3857, this.resolvedDataProjection)
+          [center[0] - this.currentRadiusDataProj, center[1] - this.currentRadiusDataProj],
+          [center[0] + this.currentRadiusDataProj, center[1] + this.currentRadiusDataProj],
+        ]), this.resolvedRadiusProjection, this.resolvedDataProjection)
       },
       currentExtentViewProj () {
         return this.extentToViewProj(this.currentExtentDataProj)
       },
     },
     watch: {
-      async roundRadius (value) {
+      async radiusDataProj (value) {
         await this.setRadius(value)
       },
-      currentRadius: debounce(function (value) {
+      currentRadiusDataProj: debounce(function (value) {
         if (value === this.roundRadius) return
 
         this.$emit('update:radius', value)
       }, FRAME_TIME),
+      async resolvedRadiusProjection () {
+        await this.setRadius(this.radiusDataProj)
+      },
     },
     methods: {
+      /**
+       * @return {string[]}
+       */
+      triggerProps () {
+        return [
+          ...this::simpleGeometry.methods.triggerProps(),
+          'currentRadiusDataProj',
+          'currentRadiusViewProj',
+        ]
+      },
       /**
        * @return {Circle}
        * @protected
        */
       createGeometry () {
-        return new Circle(this.currentCoordinatesViewProj, this.currentRadius)
+        return new Circle(this.currentCoordinatesViewProj, this.currentRadiusViewProj)
       },
-      /**
-       * @return {Promise<number[]>}
-       */
-      getCoordinates () {
-        return this.getCenter()
+      getCoordinatesSync () {
+        return this.getCenterSync()
       },
-      /**
-       * @param {number[]} coordinate
-       */
-      async setCoordinates (coordinate) {
-        await this.setCenter(coordinate)
+      setCoordinatesSync (coordinate) {
+        this.setCenterSync(coordinate)
       },
       async getCenter () {
-        return this.pointToDataProj((await this.resolveGeometry()).getCenter())
+        await this.resolveGeometry()
+
+        return this.getCenterSync()
+      },
+      getCenterSync (viewProj = false) {
+        if (viewProj) {
+          return roundCoords(this.$geometry.getType(), this.$geometry.getCenter())
+        }
+
+        return this.pointToDataProj(this.$geometry.getCenter())
       },
       async setCenter (center) {
-        if (isEqual(center, await this.getCenter())) return
+        await this.resolveGeometry()
 
-        (await this.resolveGeometry()).setCenter(this.pointToViewProj(center))
+        this.setCenterSync(center)
       },
-      async setCenterAndRadius (center, radius) {
-        if (
-          radius === await this.getRadius() &&
-          isEqual(center, await this.getCenter())
-        ) return
+      setCenterSync (center) {
+        if (isEqual(center, this.getCenterSync())) return
 
-        (await this.resolveGeometry()).setCenterAndRadius(
-          this.pointToViewProj(center),
-          round(radius, COORD_PRECISION),
-        )
+        this.$geometry.setCenter(this.pointToViewProj(center))
       },
       async getRadius () {
-        return round((await this.resolveGeometry()).getRadius(), COORD_PRECISION)
+        await this.resolveGeometry()
+
+        return this.getRadiusSync()
+      },
+      getRadiusSync (viewProj = false) {
+        if (viewProj) {
+          return round(this.$geometry.getRadius(), COORD_PRECISION)
+        }
+
+        return this.radiusToDataProj(this.$geometry.getRadius(), this.$geometry.getCenter())
       },
       async setRadius (radius) {
-        if (radius === await this.getRadius()) return
+        await this.resolveGeometry()
 
-        (await this.resolveGeometry()).setRadius(round(radius, COORD_PRECISION))
+        this.setRadiusSync(radius)
       },
-      async mergeWithInternal (geom) {
-        await this.setCenterAndRadius(this.coordinatesToDataProj(geom.getCenter()), geom.getRadius())
+      setRadiusSync (radius) {
+        if (radius === this.getRadiusSync()) return
+
+        this.$geometry.setRadius(this.radiusToViewProj(radius, this.getCenterSync()))
+      },
+      async setCenterAndRadius (center, radius) {
+        await this.resolveGeometry()
+
+        this.setCenterAndRadiusSync(center, radius)
+      },
+      setCenterAndRadiusSync (center, radius) {
+        if (
+          radius === this.getRadiusSync() &&
+          isEqual(center, this.getCenterSync())
+        ) return
+
+        this.$geometry.setCenterAndRadius(
+          this.pointToViewProj(center),
+          this.radiusToViewProj(radius, center),
+        )
+      },
+      radiusToViewProj (radius, center) {
+        return transformDistance(radius, this.resolvedRadiusProjection, this.viewProjection)
+      },
+      radiusToDataProj (radius, center) {
+        return transformDistance(radius, this.viewProjection, this.resolvedRadiusProjection)
       },
     },
   }

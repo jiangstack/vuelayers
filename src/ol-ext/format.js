@@ -5,7 +5,7 @@ import { isEmpty } from 'ol/obj'
 import { getLength } from 'ol/sphere'
 import { clonePlainObject, isArray, isFunction, noop, omit } from '../util/minilo'
 import { createCircularPolygon, isCircleGeom } from './geom'
-import { EPSG_4326, transformPoint } from './proj'
+import { EPSG_4326, transformDistance, transformPoint } from './proj'
 
 /**
  * @param {Object} [options]
@@ -23,16 +23,23 @@ export function createMvtFmt (options) {
   return new MVT(options)
 }
 
+export const CIRCLE_SERIALIZE_PROP = 'vl_circle'
+export const STYLE_SERIALIZE_PROP = 'vl_style'
+
 class GeoJSON extends BaseGeoJSON {
   constructor (options = {}) {
     super(options)
 
-    this.defaultDecimals = options.decimals
+    this.defaultDecimals = options.decimals != null && options.decimals > -1 ? options.decimals : undefined
     this.defaultStyleReader = options.styleReader || noop
     this.defaultStyleWriter = options.styleWriter || noop
   }
 
-  adaptOptions (options) {
+  adaptOptions (options = {}) {
+    if (options.decimals != null && options.decimals < 0) {
+      options.decimals = undefined
+    }
+
     return super.adaptOptions({
       decimals: this.defaultDecimals,
       styleReader: this.defaultStyleReader,
@@ -79,13 +86,17 @@ class GeoJSON extends BaseGeoJSON {
       if (isCircleGeom(geometry)) {
         object.properties = {
           ...object.properties || {},
-          'vl_circle': {
+          [CIRCLE_SERIALIZE_PROP]: {
             center: transformPoint(
               geometry.getCenter(),
               options.featureProjection,
               options.dataProjection,
             ),
-            radius: geometry.getRadius(),
+            radius: transformDistance(
+              geometry.getRadius(),
+              options.featureProjection,
+              options.dataProjection,
+            ),
           },
         }
       }
@@ -105,7 +116,7 @@ class GeoJSON extends BaseGeoJSON {
       isArray(style) || (style = [style])
       object.properties = {
         ...object.properties || {},
-        'vl_style': style.map(style => options.styleWriter(
+        [STYLE_SERIALIZE_PROP]: style.map(style => options.styleWriter(
           style,
           geometry => this.writeGeometryObject(geometry, options),
         )),
@@ -137,9 +148,9 @@ class GeoJSON extends BaseGeoJSON {
 
     /* eslint-disable dot-notation */
 
-    if (geoJSONFeature.properties && geoJSONFeature.properties['vl_circle']) {
-      options.circle = geoJSONFeature.properties['vl_circle']
-      delete geoJSONFeature.properties['vl_circle']
+    if (geoJSONFeature.properties && geoJSONFeature.properties[CIRCLE_SERIALIZE_PROP]) {
+      options.circle = geoJSONFeature.properties[CIRCLE_SERIALIZE_PROP]
+      delete geoJSONFeature.properties[CIRCLE_SERIALIZE_PROP]
     }
     const geometry = this.readGeometryFromObject(geoJSONFeature.geometry, options)
     if (this.geometryName_) {
@@ -154,8 +165,8 @@ class GeoJSON extends BaseGeoJSON {
     }
 
     if (geoJSONFeature.properties) {
-      if (geoJSONFeature.properties['vl_style']) {
-        let style = geoJSONFeature.properties['vl_style']
+      if (geoJSONFeature.properties[STYLE_SERIALIZE_PROP]) {
+        let style = geoJSONFeature.properties[STYLE_SERIALIZE_PROP]
         isArray(style) || (style = [style])
         feature.setStyle(
           style.map(style => options.styleReader(
@@ -163,7 +174,7 @@ class GeoJSON extends BaseGeoJSON {
             geometry => this.readGeometryFromObject(geometry, omit(options, ['circle'])),
           )),
         )
-        delete geoJSONFeature.properties['vl_style']
+        delete geoJSONFeature.properties[STYLE_SERIALIZE_PROP]
       }
 
       feature.setProperties(geoJSONFeature.properties, true)
@@ -184,7 +195,11 @@ class GeoJSON extends BaseGeoJSON {
           options.dataProjection,
           options.featureProjection,
         ),
-        options.circle.radius,
+        transformDistance(
+          options.circle.radius,
+          options.dataProjection,
+          options.featureProjection,
+        ),
       )
     }
 

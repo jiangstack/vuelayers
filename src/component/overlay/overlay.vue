@@ -79,7 +79,7 @@
     },
     positionDataProj () {
       if (this.rev && this.$overlay) {
-        return this.pointToDataProj(this.$overlay.getPosition(), 8)
+        return this.pointToDataProj(this.$overlay.getPosition())
       }
     },
     classes () {
@@ -99,7 +99,7 @@
       const overlay = new Overlay({
         id: this.id,
         offset: this.offset,
-        position: this.pointToViewProj(this.position, 8),
+        position: this.pointToViewProj(this.position),
         positioning: this.positioning,
         stopEvent: this.stopEvent,
         insertFirst: this.insertFirst,
@@ -161,7 +161,7 @@
       }
     },
     position (value) {
-      value = this.pointToViewProj(value, 8)
+      value = this.pointToViewProj(value)
       if (this.$overlay && !isEqual(value, this.$overlay.getPosition())) {
         this.$overlay.setPosition(value)
       }
@@ -173,7 +173,7 @@
     },
     resolvedDataProjection () {
       if (this.$overlay) {
-        this.$overlay.setPosition(this.pointToViewProj(this.position, 8))
+        this.$overlay.setPosition(this.pointToViewProj(this.position))
       }
     },
   }

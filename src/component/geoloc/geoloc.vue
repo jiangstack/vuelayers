@@ -16,7 +16,6 @@
 <script>
   import { Geolocation } from 'ol'
   import { olCmp, projTransforms } from '../../mixin'
-  import { COORD_PRECISION } from '../../ol-ext'
   import { obsFromOlChangeEvent } from '../../rx-ext'
   import { isEqual } from '../../util/minilo'
 
@@ -74,7 +73,7 @@
       positionViewProj () {
         if (!(this.position && this.viewProjection)) return
 
-        return this.pointToViewProj(this.position, COORD_PRECISION)
+        return this.pointToViewProj(this.position)
       },
     },
     watch: {

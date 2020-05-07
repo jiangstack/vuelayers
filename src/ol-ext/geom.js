@@ -199,5 +199,8 @@ export function getGeomCoords (geom) {
 }
 
 export function getGeomType (geom) {
-  return geom?.type || (geom instanceof Geometry && geom.getType())
+  if (geom instanceof Geometry) {
+    return geom.getType()
+  }
+  return geom?.type
 }

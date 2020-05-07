@@ -1,5 +1,6 @@
 import debounce from 'debounce-promise'
-import { findPointOnSurface } from '../ol-ext'
+import { Geometry } from 'ol/geom'
+import { findPointOnSurface, isGeoJSONGeometry } from '../ol-ext'
 import { clonePlainObject, isEqual, isFunction } from '../util/minilo'
 import { FRAME_TIME } from './ol-cmp'
 import projTransforms from './proj-transforms'
@@ -100,8 +101,12 @@ export default {
     async setGeometry (geom) {
       if (isFunction(geom?.resolveOlObject)) {
         geom = await geom.resolveOlObject()
+      } else if (isGeoJSONGeometry(geom)) {
+        geom = this.readGeometryInDataProj(geom)
       }
-      geom || (geom = null)
+      if (!(geom instanceof Geometry)) {
+        geom = null
+      }
 
       if (geom === this._geometry) return
 

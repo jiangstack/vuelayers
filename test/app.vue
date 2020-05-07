@@ -20,6 +20,10 @@
         <VlStyle>
           <VlStyleFill color="white" />
           <VlStyleStroke color="green" />
+          <VlStyleCircle>
+            <VlStyleFill color="white" />
+            <VlStyleStroke color="green" />
+          </VlStyleCircle>
           <VlStyleText
             text="test"
             font="bold 16px sans-serif">
@@ -44,30 +48,9 @@
         center: [0, 0],
         rotation: 0,
         point: [0, 0],
-        radius: 20e5,
+        radius: 20,
         extent: [-30, -30, 30, 30],
-        features: [
-          {
-            type: 'Feature',
-            properties: {
-              active: true,
-            },
-            geometry: {
-              type: 'Point',
-              coordinates: [0, 0],
-            },
-          },
-          {
-            type: 'Feature',
-            properties: {
-              active: false,
-            },
-            geometry: {
-              type: 'Point',
-              coordinates: [10, 10],
-            },
-          },
-        ],
+        features: [],
       }
     },
   }

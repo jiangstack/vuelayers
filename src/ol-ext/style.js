@@ -249,7 +249,6 @@ export function createImageStyle (vlStyle, prefix = '') {
     Ctor = Icon
     // then create Icon options
     imageStyle = {
-      ...vlStyle,
       anchor: vlStyle[prefixKey('anchor')],
       anchorOrigin: vlStyle[prefixKey('anchorOrigin')],
       anchorXUnits: vlStyle[prefixKey('anchorXUnits')],
@@ -268,7 +267,6 @@ export function createImageStyle (vlStyle, prefix = '') {
     Ctor = RegularShape
     // create RegularShape options
     imageStyle = {
-      ...vlStyle,
       points: vlStyle[prefixKey('points')],
       radius: vlStyle[prefixKey('radius')],
       radius1: vlStyle[prefixKey('radius1')],
@@ -280,15 +278,14 @@ export function createImageStyle (vlStyle, prefix = '') {
     Ctor = Circle
     // create Circle options
     imageStyle = {
-      ...vlStyle,
       radius: vlStyle[prefixKey('radius')],
     }
   }
 
   imageStyle = {
     ...imageStyle,
-    fill: createFillStyle(vlStyle, 'imageFill'),
-    stroke: createStrokeStyle(vlStyle, 'imageStroke'),
+    fill: createFillStyle(vlStyle, prefixKey('fill')),
+    stroke: createStrokeStyle(vlStyle, prefixKey('stroke')),
     opacity: vlStyle[prefixKey('opacity')],
     scale: vlStyle[prefixKey('scale')],
     rotation: vlStyle[prefixKey('rotation')],

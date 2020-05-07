@@ -96,6 +96,7 @@ export default {
       return this::style.methods.unmount()
     },
     ...pick(style.methods, [
+      'triggerProps',
       'beforeInit',
       'init',
       'deinit',

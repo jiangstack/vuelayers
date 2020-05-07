@@ -1,11 +1,23 @@
 import debounce from 'debounce-promise'
 import { Collection, Feature, getUid } from 'ol'
+import { Style } from 'ol/style'
 import { from as fromObs, merge as mergeObs } from 'rxjs'
-import { map as mapObs, switchMap, tap } from 'rxjs/operators'
-import { getFeatureId, initializeFeature } from '../ol-ext'
+import { map as mapObs, mergeMap, tap } from 'rxjs/operators'
+import {
+  CIRCLE_SERIALIZE_PROP,
+  createStyle,
+  dumpStyle,
+  getFeatureId,
+  getFeatureProperties,
+  initializeFeature,
+  isGeoJSONFeature,
+  setFeatureId,
+  setFeatureProperties,
+  STYLE_SERIALIZE_PROP,
+} from '../ol-ext'
 import { obsFromOlEvent } from '../rx-ext'
 import { instanceOf } from '../util/assert'
-import { clonePlainObject, isEqual, isFunction, isPlainObject, map } from '../util/minilo'
+import { clonePlainObject, get, isArray, isEqual, isFunction, isPlainObject, map } from '../util/minilo'
 import identMap from './ident-map'
 import { FRAME_TIME } from './ol-cmp'
 import projTransforms from './proj-transforms'
@@ -39,7 +51,7 @@ export default {
     featuresViewProj () {
       if (!this.rev) return []
 
-      return this.getFeatures().map(::this.writeFeatureInViewProj)
+      return this.getFeatures().map(f => this.writeFeatureInViewProj(f))
     },
     /**
      * @type {Object[]}
@@ -47,7 +59,7 @@ export default {
     featuresDataProj () {
       if (!this.rev) return []
 
-      return this.getFeatures().map(::this.writeFeatureInDataProj)
+      return this.getFeatures().map(f => this.writeFeatureInDataProj(f))
     },
     /**
      * @returns {string|undefined}
@@ -210,6 +222,50 @@ export default {
 
       this.$emit('update:features', clonePlainObject(features))
     },
+    updateFeature (feature, newFeatureJson) {
+      const featureJson = this.writeFeatureInDataProj(feature)
+
+      if (isEqual(featureJson, newFeatureJson)) return
+
+      const newFeature = this.readFeatureInDataProj(newFeatureJson)
+
+      if (getFeatureId(feature) !== getFeatureId(newFeature)) {
+        setFeatureId(feature, getFeatureId(newFeature))
+      }
+
+      const properties = getFeatureProperties(newFeature)
+      const currentProperties = getFeatureProperties(feature)
+      if (!isEqual(properties, currentProperties)) {
+        setFeatureProperties(feature, properties)
+      }
+
+      const geomJson = get(newFeatureJson, `properties.${CIRCLE_SERIALIZE_PROP}`) || newFeatureJson.geometry || null
+      const currentGeomJson = get(featureJson, `properties.${CIRCLE_SERIALIZE_PROP}`) || featureJson.geometry || null
+      if (!isEqual(geomJson, currentGeomJson)) {
+        feature.setGeometry(newFeature.getGeometry() || null)
+      }
+
+      let styleJson = get(newFeatureJson, `properties.${STYLE_SERIALIZE_PROP}`) || null
+      if (styleJson && !isArray(styleJson)) {
+        styleJson = [styleJson]
+      }
+      const style = styleJson ? styleJson.map(style => createStyle(style, geom => this.readGeometryInDataProj(geom))) : null
+      let currentStyle = feature.getStyle() || null
+      if (currentStyle instanceof Style) {
+        currentStyle = [currentStyle]
+      }
+      const currentStyleJson = currentStyle ? currentStyle.map(
+        style => dumpStyle(style, geom => this.writeGeometryInDataProj(geom))) : null
+      if (!style || !currentStyle || isFunction(currentStyle)) {
+        if (style !== currentStyle) {
+          feature.setStyle(style)
+        }
+      } else {
+        if (!isEqual(styleJson, currentStyleJson)) {
+          feature.setStyle(style)
+        }
+      }
+    },
   },
 }
 
@@ -224,10 +280,28 @@ function defineServices () {
 
 function subscribeToCollectionEvents () {
   const adds = obsFromOlEvent(this.$featuresCollection, 'add').pipe(
-    switchMap(({ type, element }) => fromObs(this.initializeFeature(element)).pipe(
+    mergeMap(({ type, element }) => fromObs(this.initializeFeature(element)).pipe(
       mapObs(element => ({ type, element })),
     )),
     tap(({ type, element }) => {
+      if (!element.vm?.length) {
+        const unwatch = this.$watch(
+          () => (this.inputFeatures || []).find(f => getFeatureId(f) === getFeatureId(element)),
+          (featureJson, prevFeatureJson) => {
+            if (isEqual(featureJson, prevFeatureJson)) return
+
+            if (isGeoJSONFeature(featureJson)) {
+              this.updateFeature(element, featureJson)
+            } else {
+              unwatch()
+            }
+          },
+          {
+            deep: true,
+          },
+        )
+      }
+
       const uid = getUid(element)
       const propChanges = obsFromOlEvent(element, 'propertychange')
       const changes = obsFromOlEvent(element, 'change')
@@ -242,6 +316,12 @@ function subscribeToCollectionEvents () {
   )
   const removes = obsFromOlEvent(this.$featuresCollection, 'remove').pipe(
     tap(({ type, element }) => {
+      element.vm.forEach(vm => {
+        if (vm.$options.name === 'VlVirtualFeature' && vm.$vq.closest(this)) {
+          vm.$destroy()
+        }
+      })
+
       const uid = getUid(element)
       if (this._featureSubs[uid]) {
         this.unsubscribe(this._featureSubs[uid])
@@ -252,6 +332,10 @@ function subscribeToCollectionEvents () {
   this.subscribeTo(mergeObs(adds, removes), ({ type, element }) => {
     ++this.rev
 
-    this.$nextTick(() => this.$emit(type + 'feature', element))
+    this.$nextTick(() => {
+      this.$emit(type + 'feature', element)
+      // todo remove in v0.13.x
+      this.$emit(type + ':feature', element)
+    })
   })
 }

@@ -1,6 +1,6 @@
 import GeometryType from 'ol/geom/GeometryType'
 import { fromLonLat, toLonLat, transform as baseTransform, transformExtent as baseTransformExtent } from 'ol/proj'
-import { COORD_PRECISION, roundCoords, roundExtent } from './coord'
+import { calcDistance, COORD_PRECISION, roundCoords, roundExtent } from './coord'
 
 export const EPSG_4326 = 'EPSG:4326'
 export const EPSG_3857 = 'EPSG:3857'
@@ -369,4 +369,20 @@ export function extentToLonLat (
   precision = COORD_PRECISION,
 ) {
   return transformExtent(extent, projection, EPSG_4326, precision)
+}
+
+export function transformDistance (
+  distance,
+  sourceProjection,
+  destProjection,
+  precision = COORD_PRECISION,
+) {
+  const line = transformLine(
+    [[0, 0], [distance, 0]],
+    sourceProjection,
+    destProjection,
+    precision,
+  )
+
+  return calcDistance(line[0], line[1], precision)
 }

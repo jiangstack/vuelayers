@@ -1,6 +1,6 @@
 import debounce from 'debounce-promise'
 import { from as fromObs, merge as mergeObs } from 'rxjs'
-import { map as mapObs, skipWhile, switchMap } from 'rxjs/operators'
+import { map as mapObs, mergeMap, skipWhile } from 'rxjs/operators'
 import { getLayerId, initializeLayer, roundExtent, setLayerId } from '../ol-ext'
 import { obsFromOlChangeEvent, obsFromOlEvent, obsFromVueEvent } from '../rx-ext'
 import { assert } from '../util/assert'
@@ -551,7 +551,7 @@ async function subscribeToLayerEvents () {
       compareWith: this[prefixKey(evt.prop)],
     })),
     obsFromOlChangeEvent(this.$layer, 'extent', true).pipe(
-      switchMap(({ prop }) => fromObs(this.getExtent()).pipe(
+      mergeMap(({ prop }) => fromObs(this.getExtent()).pipe(
         mapObs(extent => ({
           prop,
           value: extent,
